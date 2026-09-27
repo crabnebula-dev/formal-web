@@ -1062,6 +1062,14 @@ pub enum Command {
         peer: crate::webrtc::PeerConnectionId,
         message: crate::webrtc::Message,
     },
+    /// Feedback from one WebSocket connection, from the net process.
+    /// Content queues a task for it on the WebSocket task source.
+    /// <https://websockets.spec.whatwg.org/#websocket-task-source>
+    WebSocket {
+        document_id: DocumentId,
+        socket: crate::websocket::WebSocketId,
+        event: crate::websocket::WebSocketEvent,
+    },
     /// A video pipeline reached end of stream. Content should unset any
     /// animating flags associated with this pipeline.
     NotifyVideoEnded {

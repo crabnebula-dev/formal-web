@@ -69,7 +69,6 @@ impl WebIdlInterface<Types> for RTCPeerConnectionIceEvent {
     }
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-rtcpeerconnectioniceevent-candidate>
 fn ice_event_candidate(
     this: &JsValue,
     _args: &[JsValue],
@@ -83,7 +82,6 @@ fn ice_event_candidate(
     })
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-rtcpeerconnectioniceevent-url>
 fn ice_event_url(
     this: &JsValue,
     _args: &[JsValue],
@@ -142,7 +140,6 @@ impl WebIdlInterface<Types> for RTCDataChannelEvent {
     }
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-datachannelevent-channel>
 fn data_channel_event_channel(
     this: &JsValue,
     _args: &[JsValue],

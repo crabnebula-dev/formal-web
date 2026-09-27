@@ -1,6 +1,6 @@
 // Run a testharness.js page from tests/formal/tests (a bare file name) or
-// from vendor/wpt (a path such as webrtc/RTCIceCandidate-constructor.html) in
-// formal-web over
+// from vendor/wpt (a path such as webrtc/RTCIceCandidate-constructor.html, or
+// a url/*.any.js script, run in its window wrapper page) in formal-web over
 // WebDriver, without `wpt serve`: a local HTTP server serves the page, WPT's
 // testharness.js from vendor/wpt/resources, and a testharnessreport.js that
 // records the results in the page for this script to poll.
@@ -28,9 +28,37 @@ add_completion_callback((tests, status) => {
   };
 });`;
 
+// The window wrapper wptserve generates for a .any.js test.
+const anyWrapper = (scriptPath) => {
+  const source = readFileSync(path.join(root, 'vendor/wpt', scriptPath), 'utf8');
+  const scripts = [...source.matchAll(/^\/\/ META: script=(\S+)/gm)]
+    .map((match) => `<script src="${match[1]}"></script>`)
+    .join('\n');
+  return `<!doctype html>
+<meta charset=utf-8>
+<title>${path.basename(scriptPath)}</title>
+<script>
+self.GLOBAL = {
+  isWindow: function() { return true; },
+  isWorker: function() { return false; },
+  isShadowRealm: function() { return false; },
+};
+</script>
+<script src="/resources/testharness.js"></script>
+<script src="/resources/testharnessreport.js"></script>
+${scripts}
+<div id=log></div>
+<script src="/${scriptPath}"></script>
+`;
+};
+
 const page = http.createServer((request, response) => {
   const url = new URL(request.url, 'http://localhost');
   try {
+    if (url.pathname.endsWith('.any.html')) {
+      response.setHeader('content-type', 'text/html');
+      return response.end(anyWrapper(url.pathname.slice(1).replace(/\.any\.html$/, '.any.js')));
+    }
     if (url.pathname === '/resources/testharnessreport.js') {
       response.setHeader('content-type', 'text/javascript');
       return response.end(REPORT);
@@ -89,7 +117,8 @@ try {
   }
   const session = await request('POST', '/session', { capabilities: {} });
   const sid = session.value.sessionId;
-  await request('POST', `/session/${sid}/url`, { url: `http://127.0.0.1:${page.address().port}/${test}` });
+  const servedTest = test.replace(/\.any\.js$/, '.any.html');
+  await request('POST', `/session/${sid}/url`, { url: `http://127.0.0.1:${page.address().port}/${servedTest}` });
   let results = null;
   for (let i = 0; i < 60 && !results; i++) {
     await new Promise((r) => setTimeout(r, 500));

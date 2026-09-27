@@ -38,7 +38,6 @@ impl WebIdlInterface<Types> for RTCSessionDescription {
     }
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-sessiondescription-type>
 fn type_(
     this: &JsValue,
     _args: &[JsValue],
@@ -49,7 +48,6 @@ fn type_(
     Ok(ec.value_from_string(string))
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-sessiondescription-sdp>
 fn sdp(
     this: &JsValue,
     _args: &[JsValue],
@@ -60,7 +58,6 @@ fn sdp(
     Ok(ec.value_from_string(string))
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-rtcsessiondescription-tojson>
 fn to_json(
     this: &JsValue,
     _args: &[JsValue],

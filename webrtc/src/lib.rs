@@ -527,7 +527,9 @@ fn peer_events(
             .collect(),
         E::DcBufferedAmountLow { handle } => {
             // The worker thread holds the peer, which the amount is read from.
-            let _ = work.send(Work::BufferedAmountLow(handle));
+            if let Err(error) = work.send(Work::BufferedAmountLow(handle)) {
+                log::debug!("[webrtc] peer worker is gone, dropping buffered amount low: {error}");
+            }
             Vec::new()
         }
         E::DcClose { handle } => content(channels, handle)
@@ -551,5 +553,212 @@ fn peer_events(
         | E::MediaFrame(_)
         | E::AudioPcm { .. }
         | E::EncodedOut(_) => Vec::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Channels, PeerEvent, Work, backend, peer_events};
+    use ipc_messages::webrtc::{DataChannelHandle, Payload};
+
+    fn channels_and_work() -> (
+        Channels,
+        crossbeam_channel::Sender<Work>,
+        crossbeam_channel::Receiver<Work>,
+    ) {
+        let (sender, receiver) = crossbeam_channel::unbounded::<Work>();
+        (Channels::default(), sender, receiver)
+    }
+
+    fn remote_channel(handle: u32, label: &str) -> backend::PeerEvent {
+        backend::PeerEvent::DataChannel {
+            channel: backend::DataChannelInfo {
+                handle,
+                label: String::from(label),
+                ordered: true,
+                protocol: String::new(),
+                negotiated: false,
+                id: Some(3),
+                max_packet_life_time: None,
+                max_retransmits: None,
+            },
+        }
+    }
+
+    #[test]
+    fn remote_channel_handles_carry_the_remote_bit_and_stay_stable() {
+        let mut channels = Channels::default();
+        let first = channels.content_for_remote(7);
+        let again = channels.content_for_remote(7);
+        let second = channels.content_for_remote(8);
+        assert_eq!(first, again);
+        assert_ne!(first, second);
+        assert_ne!(first & DataChannelHandle::REMOTE, 0);
+        assert_ne!(second & DataChannelHandle::REMOTE, 0);
+        assert_eq!(channels.to_engine.get(&first), Some(&7));
+    }
+
+    #[test]
+    fn gathering_complete_waits_for_the_end_of_candidates() {
+        let (mut channels, work, _receiver) = channels_and_work();
+        let held = peer_events(
+            backend::PeerEvent::IceGatheringStateChange {
+                state: String::from("complete"),
+            },
+            &mut channels,
+            &work,
+        );
+        assert!(held.is_empty());
+        assert!(channels.gathering_complete_held);
+
+        let released = peer_events(
+            backend::PeerEvent::IceCandidate { candidate: None },
+            &mut channels,
+            &work,
+        );
+        assert!(matches!(released[0], PeerEvent::IceCandidate(None)));
+        assert!(matches!(&released[1], PeerEvent::IceGatheringState(state) if state == "complete"));
+        assert_eq!(released.len(), 2);
+        assert!(!channels.gathering_complete_held);
+    }
+
+    #[test]
+    fn other_gathering_states_pass_through() {
+        let (mut channels, work, _receiver) = channels_and_work();
+        let events = peer_events(
+            backend::PeerEvent::IceGatheringStateChange {
+                state: String::from("gathering"),
+            },
+            &mut channels,
+            &work,
+        );
+        assert!(matches!(&events[0], PeerEvent::IceGatheringState(state) if state == "gathering"));
+        assert!(!channels.gathering_complete_held);
+    }
+
+    #[test]
+    fn a_candidate_keeps_its_mid_and_line_index() {
+        let (mut channels, work, _receiver) = channels_and_work();
+        let events = peer_events(
+            backend::PeerEvent::IceCandidate {
+                candidate: Some(backend::IceCandidate {
+                    candidate: String::from("candidate:1 1 udp 1 127.0.0.1 9 typ host"),
+                    sdp_mid: Some(String::from("0")),
+                    sdp_m_line_index: Some(0),
+                }),
+            },
+            &mut channels,
+            &work,
+        );
+        let PeerEvent::IceCandidate(Some(candidate)) = &events[0] else {
+            panic!("expected a candidate, got {events:?}");
+        };
+        assert_eq!(candidate.sdp_mid.as_deref(), Some("0"));
+        assert_eq!(candidate.sdp_m_line_index, Some(0));
+        assert!(candidate.candidate.starts_with("candidate:1"));
+    }
+
+    #[test]
+    fn a_remote_channel_is_announced_and_its_events_use_the_content_handle() {
+        let (mut channels, work, _receiver) = channels_and_work();
+        let announced = peer_events(remote_channel(5, "chat"), &mut channels, &work);
+        let PeerEvent::DataChannel(properties) = &announced[0] else {
+            panic!("expected a data channel announcement, got {announced:?}");
+        };
+        let content = properties.handle;
+        assert_ne!(content.0 & DataChannelHandle::REMOTE, 0);
+        assert_eq!(properties.label, "chat");
+        assert_eq!(properties.id, Some(3));
+
+        let opened = peer_events(
+            backend::PeerEvent::DcOpen {
+                handle: 5,
+                id: Some(3),
+            },
+            &mut channels,
+            &work,
+        );
+        assert!(
+            matches!(&opened[0], PeerEvent::DataChannelOpen { channel, id: Some(3) } if *channel == content)
+        );
+
+        let message = peer_events(
+            backend::PeerEvent::DcMessage {
+                handle: 5,
+                payload: backend::Payload::Text(String::from("hi")),
+            },
+            &mut channels,
+            &work,
+        );
+        assert!(
+            matches!(&message[0], PeerEvent::DataChannelMessage { channel, payload: Payload::Text(text) } if *channel == content && text == "hi")
+        );
+
+        let closed = peer_events(
+            backend::PeerEvent::DcClose { handle: 5 },
+            &mut channels,
+            &work,
+        );
+        assert!(
+            matches!(&closed[0], PeerEvent::DataChannelClosed { channel } if *channel == content)
+        );
+    }
+
+    #[test]
+    fn events_for_unknown_engine_channels_are_dropped() {
+        let (mut channels, work, _receiver) = channels_and_work();
+        let events = peer_events(
+            backend::PeerEvent::DcOpen {
+                handle: 42,
+                id: None,
+            },
+            &mut channels,
+            &work,
+        );
+        assert!(events.is_empty());
+        let events = peer_events(
+            backend::PeerEvent::DcError {
+                handle: 42,
+                message: String::from("boom"),
+            },
+            &mut channels,
+            &work,
+        );
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn buffered_amount_low_goes_to_the_peer_worker() {
+        let (mut channels, work, receiver) = channels_and_work();
+        channels.bind(1, 9);
+        let events = peer_events(
+            backend::PeerEvent::DcBufferedAmountLow { handle: 9 },
+            &mut channels,
+            &work,
+        );
+        assert!(events.is_empty());
+        assert!(matches!(
+            receiver.try_recv(),
+            Ok(Work::BufferedAmountLow(9))
+        ));
+    }
+
+    #[test]
+    fn media_and_signaling_events_have_no_content_counterpart() {
+        let (mut channels, work, _receiver) = channels_and_work();
+        let events = peer_events(
+            backend::PeerEvent::SignalingStateChange {
+                state: String::from("stable"),
+            },
+            &mut channels,
+            &work,
+        );
+        assert!(events.is_empty());
+        let events = peer_events(
+            backend::PeerEvent::TargetBitrate { bps: 1 },
+            &mut channels,
+            &work,
+        );
+        assert!(events.is_empty());
     }
 }

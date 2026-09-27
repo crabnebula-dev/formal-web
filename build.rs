@@ -14,12 +14,11 @@ enum JavascriptBackend {
 
 fn main() {
     #[allow(unused_mut)]
-    let mut prebuild_binaries_list: Vec<(&str, &str)> =
-        vec![
-            ("content", "formal-web-content"),
-            ("net", "formal-web-net"),
-            ("webrtc", "formal-web-webrtc"),
-        ];
+    let mut prebuild_binaries_list: Vec<(&str, &str)> = vec![
+        ("content", "formal-web-content"),
+        ("net", "formal-web-net"),
+        ("webrtc", "formal-web-webrtc"),
+    ];
 
     // Only prebuild the media binary when the media feature is enabled.
     #[cfg(feature = "media")]

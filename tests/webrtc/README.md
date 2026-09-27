@@ -13,8 +13,10 @@ node tests/webrtc/testharness.mjs webrtc/RTCPeerConnection-constructor.html
 - `loopback.mjs` runs two RTCPeerConnections in one page: negotiation, a data
   channel, text and binary messages both ways, close. It prints each step.
 - `testharness.mjs` runs one testharness.js page: a bare file name from
-  `tests/formal/tests`, or a path under `vendor/wpt`. It serves WPT's
-  `testharness.js` and records results with its own `testharnessreport.js`.
+  `tests/formal/tests`, or a path under `vendor/wpt`. A `.any.js` path runs
+  in the window wrapper wptserve would generate (`self.GLOBAL`, the
+  `// META: script=` includes). It serves WPT's `testharness.js` and
+  records results with its own `testharnessreport.js`.
 
 The same pages are selected for the WPT runner in `tests/formal/include.ini`
 and `tests/wpt/include.ini`.

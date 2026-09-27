@@ -9,15 +9,19 @@ pub mod js;
 pub mod testutils;
 
 pub mod dom;
+pub(crate) mod encoding;
+pub(crate) mod file_api;
 #[cfg(test)]
 mod generic_js_test;
 pub mod html;
 pub mod streams;
 pub mod ui_events;
+pub(crate) mod url_standard;
 #[cfg(all(boa_backend, feature = "wasm"))]
 pub mod wasm;
 pub mod webidl;
 pub(crate) mod webrtc;
+pub(crate) mod websockets;
 
 use crate::dom::{EventTargetAccess, dispatch_with_path, fire_event, simple_path};
 use crate::html::environment_settings_object::RealmWiring;
@@ -1783,6 +1787,10 @@ impl ContentProcess {
                     for connection in global_scope.peer_connections(ec) {
                         connection.close_the_connection(ec);
                     }
+                    // <https://websockets.spec.whatwg.org/#make-disappear>
+                    for web_socket in global_scope.web_sockets(ec) {
+                        web_socket.make_disappear(ec);
+                    }
                     Ok(())
                 })
         {
@@ -2330,6 +2338,41 @@ impl ContentProcess {
                 .send(ContentEvent::RenderingOpRequested(traversable_id))
         {
             error!("failed to request rendering op for WebRTC task: {error}");
+        }
+        Ok(())
+    }
+
+    /// A task of one WebSocket, in its document's realm.
+    fn handle_web_socket_task(
+        &mut self,
+        document_id: DocumentId,
+        socket: ipc_messages::websocket::WebSocketId,
+        event: ipc_messages::websocket::WebSocketEvent,
+    ) -> Result<(), String> {
+        let Some(content_document) = self.documents.get_mut(&document_id) else {
+            // The document is gone, and its sockets with it.
+            return Ok(());
+        };
+        let time_millis = content_document.settings.current_time_millis();
+        with_global_scope(content_document.settings.ec(), |global_scope, ec| {
+            let Some(web_socket) = global_scope.web_socket(socket, ec) else {
+                return Ok(());
+            };
+            web_socket.feedback(event, time_millis, ec)
+        })
+        .map_err(|error| format!("WebSocket task failed: {}", error.display()))?;
+        // The task's event handlers may have mutated the document.
+        self.mark_document_dirty(document_id);
+        let traversable_id = self
+            .documents
+            .get(&document_id)
+            .map(|document| document.traversable_id);
+        if let Some(traversable_id) = traversable_id
+            && let Err(error) = self
+                .event_sender
+                .send(ContentEvent::RenderingOpRequested(traversable_id))
+        {
+            error!("failed to request rendering op for WebSocket task: {error}");
         }
         Ok(())
     }
@@ -3563,6 +3606,11 @@ impl ContentProcess {
                 peer,
                 task,
             } => self.handle_webrtc_task(document_id, peer, task),
+            Task::WebSocket {
+                document_id,
+                socket,
+                event,
+            } => self.handle_web_socket_task(document_id, socket, event),
             Task::RunWorkerTimer { worker_id, .. } => {
                 // A worker timer task should never reach the window event
                 // loop: worker timers are reaped by the worker's own event
@@ -3839,6 +3887,20 @@ impl ContentProcess {
                     document_id,
                     peer,
                     task: crate::webrtc::WebRtcTask::Ipc(message),
+                });
+                Ok(true)
+            }
+            Command::WebSocket {
+                document_id,
+                socket,
+                event,
+            } => {
+                // The feedback from the WebSocket connection runs as a task
+                // (the algorithms "queue a task" for it).
+                self.task_queue.queue_a_task(Task::WebSocket {
+                    document_id,
+                    socket,
+                    event,
                 });
                 Ok(true)
             }

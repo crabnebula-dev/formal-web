@@ -129,6 +129,15 @@ pub(crate) enum Task {
         task: crate::webrtc::WebRtcTask,
     },
 
+    /// A task of one WebSocket: feedback from its connection, sent by the net
+    /// process. Queued on the WebSocket task source.
+    /// <https://websockets.spec.whatwg.org/#websocket-task-source>
+    WebSocket {
+        document_id: DocumentId,
+        socket: ipc_messages::websocket::WebSocketId,
+        event: ipc_messages::websocket::WebSocketEvent,
+    },
+
     /// <https://html.spec.whatwg.org/#steps-to-fire-beforeunload>
     RunBeforeUnload {
         document_id: DocumentId,

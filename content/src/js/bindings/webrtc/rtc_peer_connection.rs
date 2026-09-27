@@ -1,5 +1,6 @@
 use crate::js::Types;
 use crate::webidl::bindings::{InterfaceDefinition, WebIdlInterface};
+use crate::webidl::{any_value, convert_js_to_sequence};
 use crate::webrtc::rtc_ice_candidate::RTCIceCandidateInit;
 use crate::webrtc::rtc_peer_connection::{
     RTCConfiguration, RTCIceServer, RTCLocalSessionDescriptionInit,
@@ -73,8 +74,6 @@ impl WebIdlInterface<Types> for RTCPeerConnection {
     }
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-rtcconfiguration>
-/// (dictionary members in lexicographical order).
 fn convert_configuration(
     value: Option<&JsValue>,
     ec: &mut dyn ExecutionContext<Types>,
@@ -88,7 +87,7 @@ fn convert_configuration(
     if let Some(certificates) = dict.get_member("certificates", ec)? {
         // sequence<RTCCertificate>: RTCCertificate is not implemented, so
         // no element converts (<https://webidl.spec.whatwg.org/#js-interface>).
-        if !sequence(&certificates, ec)?.is_empty() {
+        if !convert_js_to_sequence(&certificates, any_value, ec)?.is_empty() {
             return Err(ec.new_type_error("value is not an RTCCertificate"));
         }
     }
@@ -99,7 +98,7 @@ fn convert_configuration(
             .map_err(|_| ec.new_type_error("iceCandidatePoolSize is out of range"))?;
     }
     if let Some(servers) = dict.get_member("iceServers", ec)? {
-        for server in sequence(&servers, ec)? {
+        for server in convert_js_to_sequence(&servers, any_value, ec)? {
             configuration
                 .ice_servers
                 .push(convert_ice_server(&server, ec)?);
@@ -114,7 +113,6 @@ fn convert_configuration(
     Ok(configuration)
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-rtciceserver>
 fn convert_ice_server(
     value: &JsValue,
     ec: &mut dyn ExecutionContext<Types>,
@@ -126,7 +124,7 @@ fn convert_ice_server(
         return Err(ec.new_type_error("RTCIceServer.urls is required"));
     };
     let urls = match Types::value_as_object(&urls) {
-        Some(_) => sequence(&urls, ec)?
+        Some(_) => convert_js_to_sequence(&urls, any_value, ec)?
             .into_iter()
             .map(|url| ec.to_rust_string(url))
             .collect::<Completion<Vec<_>, Types>>()?,
@@ -140,7 +138,6 @@ fn convert_ice_server(
     })
 }
 
-/// <https://webidl.spec.whatwg.org/#js-enumeration>
 fn enumeration(
     value: &str,
     allowed: &[&str],
@@ -153,23 +150,6 @@ fn enumeration(
     }
 }
 
-/// <https://webidl.spec.whatwg.org/#js-sequence>
-pub(super) fn sequence(
-    value: &JsValue,
-    ec: &mut dyn ExecutionContext<Types>,
-) -> Completion<Vec<JsValue>, Types> {
-    if Types::value_as_object(value).is_none() {
-        return Err(ec.new_type_error("value is not a sequence"));
-    }
-    let mut iterator = ec.get_iterator(value.clone(), js_engine::IteratorKind::Sync, None)?;
-    let mut items = Vec::new();
-    while let Some(item) = ec.iterator_step_value(&mut iterator)? {
-        items.push(item);
-    }
-    Ok(items)
-}
-
-/// <https://w3c.github.io/webrtc-pc/#dom-rtcsessiondescriptioninit>
 pub(super) fn convert_session_description_init(
     value: Option<&JsValue>,
     ec: &mut dyn ExecutionContext<Types>,
@@ -184,7 +164,6 @@ pub(super) fn convert_session_description_init(
     Ok(RTCSessionDescriptionInit { type_, sdp })
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-rtclocalsessiondescriptioninit>
 fn convert_local_session_description_init(
     value: Option<&JsValue>,
     ec: &mut dyn ExecutionContext<Types>,
@@ -201,7 +180,6 @@ fn convert_local_session_description_init(
     Ok(RTCLocalSessionDescriptionInit { type_, sdp })
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-rtcicecandidateinit>
 pub(super) fn convert_ice_candidate_init(
     value: Option<&JsValue>,
     ec: &mut dyn ExecutionContext<Types>,
@@ -231,7 +209,6 @@ pub(super) fn convert_ice_candidate_init(
     })
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-rtcdatachannelinit>
 fn convert_data_channel_init(
     value: Option<&JsValue>,
     ec: &mut dyn ExecutionContext<Types>,
@@ -266,7 +243,6 @@ fn promise_value(promise: JsObject) -> JsValue {
     Types::value_from_object(promise)
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-rtcpeerconnection-createoffer>
 fn create_offer(
     this: &JsValue,
     _args: &[JsValue],
@@ -278,7 +254,6 @@ fn create_offer(
     connection.create_offer(ec).map(promise_value)
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-rtcpeerconnection-createanswer>
 fn create_answer(
     this: &JsValue,
     _args: &[JsValue],
@@ -288,7 +263,6 @@ fn create_answer(
     connection.create_answer(ec).map(promise_value)
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-peerconnection-setlocaldescription>
 fn set_local_description(
     this: &JsValue,
     args: &[JsValue],
@@ -301,7 +275,6 @@ fn set_local_description(
         .map(promise_value)
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-peerconnection-setremotedescription>
 fn set_remote_description(
     this: &JsValue,
     args: &[JsValue],
@@ -314,7 +287,6 @@ fn set_remote_description(
         .map(promise_value)
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-peerconnection-addicecandidate>
 fn add_ice_candidate(
     this: &JsValue,
     args: &[JsValue],
@@ -340,7 +312,6 @@ fn add_ice_candidate(
         .map(promise_value)
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-peerconnection-createdatachannel>
 fn create_data_channel(
     this: &JsValue,
     args: &[JsValue],
@@ -358,7 +329,6 @@ fn create_data_channel(
     Ok(Types::value_from_object(object))
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-rtcpeerconnection-close>
 fn close(
     this: &JsValue,
     _args: &[JsValue],
@@ -402,7 +372,6 @@ description_getter!(
     pending_remote_description
 );
 
-/// <https://w3c.github.io/webrtc-pc/#dom-peerconnection-signaling-state>
 fn signaling_state(
     this: &JsValue,
     _args: &[JsValue],
@@ -412,7 +381,6 @@ fn signaling_state(
     Ok(string(connection.signaling_state(), ec))
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-peerconnection-ice-gathering-state>
 fn ice_gathering_state(
     this: &JsValue,
     _args: &[JsValue],
@@ -423,7 +391,6 @@ fn ice_gathering_state(
     Ok(string(&state, ec))
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-peerconnection-ice-connection-state>
 fn ice_connection_state(
     this: &JsValue,
     _args: &[JsValue],
@@ -434,7 +401,6 @@ fn ice_connection_state(
     Ok(string(&state, ec))
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-peerconnection-connection-state>
 fn connection_state(
     this: &JsValue,
     _args: &[JsValue],
@@ -445,7 +411,6 @@ fn connection_state(
     Ok(string(&state, ec))
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-peerconnection-cantrickleicecandidates>
 fn can_trickle_ice_candidates(
     this: &JsValue,
     _args: &[JsValue],
@@ -454,7 +419,7 @@ fn can_trickle_ice_candidates(
     // Note: Whether the remote peer can trickle is not read from its
     // description; the attribute is null, its value before a remote
     // description is set.
-    let _ = connection(this, ec)?;
+    connection(this, ec)?;
     Ok(ec.value_null())
 }
 

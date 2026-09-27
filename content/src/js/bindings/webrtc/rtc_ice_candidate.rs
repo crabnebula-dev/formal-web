@@ -60,7 +60,6 @@ fn nullable_number(value: Option<f64>, ec: &mut dyn ExecutionContext<Types>) -> 
     }
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-rtcicecandidate-candidate>
 fn get_candidate(
     this: &JsValue,
     _args: &[JsValue],
@@ -70,7 +69,6 @@ fn get_candidate(
     Ok(string_value(&candidate.init.candidate, ec))
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-rtcicecandidate-sdpmid>
 fn sdp_mid(
     this: &JsValue,
     _args: &[JsValue],
@@ -80,7 +78,6 @@ fn sdp_mid(
     Ok(nullable_string_value(candidate.init.sdp_mid.as_deref(), ec))
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-rtcicecandidate-sdpmlineindex>
 fn sdp_m_line_index(
     this: &JsValue,
     _args: &[JsValue],
@@ -93,7 +90,6 @@ fn sdp_m_line_index(
     ))
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-rtcicecandidate-foundation>
 fn foundation(
     this: &JsValue,
     _args: &[JsValue],
@@ -106,7 +102,6 @@ fn foundation(
     ))
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-rtcicecandidate-component>
 fn component(
     this: &JsValue,
     _args: &[JsValue],
@@ -116,7 +111,6 @@ fn component(
     Ok(nullable_string_value(candidate.parsed.component, ec))
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-rtcicecandidate-priority>
 fn priority(
     this: &JsValue,
     _args: &[JsValue],
@@ -129,7 +123,6 @@ fn priority(
     ))
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-rtcicecandidate-address>
 fn address(
     this: &JsValue,
     _args: &[JsValue],
@@ -142,7 +135,6 @@ fn address(
     ))
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-rtcicecandidate-protocol>
 fn protocol(
     this: &JsValue,
     _args: &[JsValue],
@@ -152,7 +144,6 @@ fn protocol(
     Ok(nullable_string_value(candidate.parsed.protocol, ec))
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-rtcicecandidate-port>
 fn port(
     this: &JsValue,
     _args: &[JsValue],
@@ -162,7 +153,6 @@ fn port(
     Ok(nullable_number(candidate.parsed.port.map(f64::from), ec))
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-rtcicecandidate-type>
 fn type_(
     this: &JsValue,
     _args: &[JsValue],
@@ -172,7 +162,6 @@ fn type_(
     Ok(nullable_string_value(candidate.parsed.type_, ec))
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-rtcicecandidate-tcptype>
 fn tcp_type(
     this: &JsValue,
     _args: &[JsValue],
@@ -182,7 +171,6 @@ fn tcp_type(
     Ok(nullable_string_value(candidate.parsed.tcp_type, ec))
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-rtcicecandidate-relatedaddress>
 fn related_address(
     this: &JsValue,
     _args: &[JsValue],
@@ -195,7 +183,6 @@ fn related_address(
     ))
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-rtcicecandidate-relatedport>
 fn related_port(
     this: &JsValue,
     _args: &[JsValue],
@@ -208,7 +195,6 @@ fn related_port(
     ))
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-rtcicecandidate-usernamefragment>
 fn username_fragment(
     this: &JsValue,
     _args: &[JsValue],
@@ -221,7 +207,6 @@ fn username_fragment(
     ))
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-rtcicecandidate-relayprotocol>
 fn relay_protocol(
     this: &JsValue,
     _args: &[JsValue],
@@ -234,7 +219,6 @@ fn relay_protocol(
     ))
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-rtcicecandidate-url>
 fn url(
     this: &JsValue,
     _args: &[JsValue],
@@ -244,7 +228,6 @@ fn url(
     Ok(nullable_string_value(candidate.init.url.as_deref(), ec))
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-rtcicecandidate-tojson>
 fn to_json(
     this: &JsValue,
     _args: &[JsValue],

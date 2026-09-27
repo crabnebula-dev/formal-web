@@ -57,7 +57,6 @@ fn nullable_number(value: Option<u16>, ec: &mut dyn ExecutionContext<Types>) -> 
     }
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-datachannel-label>
 fn label(
     this: &JsValue,
     _args: &[JsValue],
@@ -67,7 +66,6 @@ fn label(
     Ok(string(&label, ec))
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-datachannel-ordered>
 fn ordered(
     this: &JsValue,
     _args: &[JsValue],
@@ -77,7 +75,6 @@ fn ordered(
     Ok(ec.value_from_bool(ordered))
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-datachannel-maxpacketlifetime>
 fn max_packet_life_time(
     this: &JsValue,
     _args: &[JsValue],
@@ -87,7 +84,6 @@ fn max_packet_life_time(
     Ok(nullable_number(value, ec))
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-datachannel-maxretransmits>
 fn max_retransmits(
     this: &JsValue,
     _args: &[JsValue],
@@ -97,7 +93,6 @@ fn max_retransmits(
     Ok(nullable_number(value, ec))
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-datachannel-protocol>
 fn protocol(
     this: &JsValue,
     _args: &[JsValue],
@@ -107,7 +102,6 @@ fn protocol(
     Ok(string(&protocol, ec))
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-datachannel-negotiated>
 fn negotiated(
     this: &JsValue,
     _args: &[JsValue],
@@ -117,7 +111,6 @@ fn negotiated(
     Ok(ec.value_from_bool(negotiated))
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-datachannel-id>
 fn id(
     this: &JsValue,
     _args: &[JsValue],
@@ -127,7 +120,6 @@ fn id(
     Ok(nullable_number(id, ec))
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-datachannel-readystate>
 fn ready_state(
     this: &JsValue,
     _args: &[JsValue],
@@ -137,7 +129,6 @@ fn ready_state(
     Ok(string(state.as_idl(), ec))
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-datachannel-bufferedamount>
 fn buffered_amount(
     this: &JsValue,
     _args: &[JsValue],
@@ -147,7 +138,6 @@ fn buffered_amount(
     Ok(ec.value_from_number(amount as f64))
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-datachannel-bufferedamountlowthreshold>
 fn get_buffered_amount_low_threshold(
     this: &JsValue,
     _args: &[JsValue],
@@ -178,7 +168,6 @@ fn set_buffered_amount_low_threshold(
     Ok(ec.value_undefined())
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-datachannel-binarytype>
 fn get_binary_type(
     this: &JsValue,
     _args: &[JsValue],
@@ -207,8 +196,6 @@ fn set_binary_type(
     Ok(ec.value_undefined())
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-datachannel-send>
-/// The overloads: USVString, Blob, ArrayBuffer and ArrayBufferView.
 fn send(
     this: &JsValue,
     args: &[JsValue],
@@ -243,7 +230,6 @@ fn send(
     Ok(ec.value_undefined())
 }
 
-/// <https://w3c.github.io/webrtc-pc/#dom-datachannel-close>
 fn close(
     this: &JsValue,
     _args: &[JsValue],

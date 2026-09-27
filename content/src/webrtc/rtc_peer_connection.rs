@@ -18,7 +18,7 @@ use crate::js::platform_objects::with_global_scope;
 
 use super::WebRtcTask;
 use super::events::{
-    RTCDataChannelEvent, RTCPeerConnectionIceEvent, RTCPeerConnectionIceEventInit, fire_event_using,
+    RTCDataChannelEvent, RTCPeerConnectionIceEvent, RTCPeerConnectionIceEventInit,
 };
 use super::rtc_data_channel::{RTCDataChannel, RTCDataChannelState};
 use super::rtc_ice_candidate::{RTCIceCandidate, RTCIceCandidateInit};
@@ -26,6 +26,7 @@ use super::rtc_session_description::{
     RTCSdpType, RTCSessionDescription, RTCSessionDescriptionInit, description_init_object,
 };
 use super::sdp;
+use crate::dom::fire_event_using;
 
 type JsObject = <Types as JsTypes>::JsObject;
 type JsValue = <Types as JsTypes>::JsValue;
@@ -877,10 +878,12 @@ impl RTCPeerConnection {
         }
         // The realm no longer routes tasks to the connection.
         let id = self.id;
-        let _ = with_global_scope(ec, move |global_scope, ec| {
+        if let Err(error) = with_global_scope(ec, move |global_scope, ec| {
             global_scope.unregister_peer_connection(id, ec);
             Ok(())
-        });
+        }) {
+            log::error!("[webrtc] unregister peer connection: {}", error.display());
+        }
     }
 
     /// Closing procedure step 3 and closed step 4: remove a channel from
@@ -1991,7 +1994,7 @@ impl RTCPeerConnection {
             return;
         };
         let peer = self.id;
-        let _ = with_global_scope(ec, move |global_scope, _ec| {
+        if let Err(error) = with_global_scope(ec, move |global_scope, _ec| {
             if let Ok(task_sources) = global_scope.task_sources() {
                 task_sources.task_queue().queue_a_task(Task::WebRtc {
                     document_id,
@@ -2000,7 +2003,12 @@ impl RTCPeerConnection {
                 });
             }
             Ok(())
-        });
+        }) {
+            log::error!(
+                "[webrtc] queue negotiation-needed task: {}",
+                error.display()
+            );
+        }
     }
 
     /// <https://w3c.github.io/webrtc-pc/#dfn-update-the-negotiation-needed-flag>,

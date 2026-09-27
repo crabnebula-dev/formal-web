@@ -14,7 +14,7 @@ use crate::js::Types;
 use crate::js::platform_objects::with_global_scope;
 use crate::webidl::bindings::create_interface_instance;
 
-use super::events::fire_event_using;
+use crate::dom::fire_event_using;
 
 type JsObject = <Types as JsTypes>::JsObject;
 type JsValue = <Types as JsTypes>::JsValue;
@@ -343,12 +343,17 @@ impl RTCDataChannel {
         // Step 3: Remove channel from connection.[[DataChannels]].
         let peer = self.peer;
         let handle = self.handle;
-        let _ = with_global_scope(ec, move |global_scope, ec| {
+        if let Err(error) = with_global_scope(ec, move |global_scope, ec| {
             if let Some(connection) = global_scope.peer_connection(peer, ec) {
                 connection.remove_from_data_channels(handle, ec);
             }
             Ok(())
-        });
+        }) {
+            log::error!(
+                "failed to remove the data channel from its connection: {}",
+                error.display()
+            );
+        }
         // Step 4: Unless the procedure was initiated by channel.close, set
         //         channel.[[ReadyState]] to "closing" and fire an event named
         //         closing at channel.
