@@ -3,6 +3,7 @@
 pub(crate) mod ui_event;
 
 pub mod css;
+pub mod cssom;
 pub(crate) mod fetch;
 pub mod infra;
 pub mod js;

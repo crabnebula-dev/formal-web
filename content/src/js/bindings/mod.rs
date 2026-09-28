@@ -1,3 +1,4 @@
+pub(crate) mod cssom;
 pub(crate) mod dom;
 pub(crate) mod encoding;
 pub(crate) mod fetch;

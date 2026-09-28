@@ -14,6 +14,10 @@ type OperationMethod =
 impl WebIdlInterface<Types> for NamedNodeMap {
     const NAME: &'static str = "NamedNodeMap";
 
+    fn value_iterator() -> bool {
+        true
+    }
+
     fn define_members(def: &mut InterfaceDefinition<Types>) {
         def.add_attribute(AttributeDef {
             id: "length",

@@ -126,6 +126,7 @@ fn build_realm_inner(
 fn setup_realm(engine: &mut Engine, _document: Rc<RefCell<BaseDocument>>) -> Result<(), String> {
     #[cfg(not(boa_backend))]
     let document = _document;
+    use crate::cssom::CSSStyleDeclaration;
     use crate::dom::{
         AbortController, AbortSignal, Attr, DOMException, DOMImplementation, Document, Element,
         Event, EventTarget, NamedNodeMap, Node,
@@ -225,6 +226,7 @@ fn setup_realm(engine: &mut Engine, _document: Rc<RefCell<BaseDocument>>) -> Res
     reg!(Element);
     reg!(Attr);
     reg!(NamedNodeMap);
+    reg!(CSSStyleDeclaration);
     reg!(HTMLElement);
     reg!(HTMLAnchorElement);
     reg!(HTMLScriptElement);

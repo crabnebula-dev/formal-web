@@ -6,7 +6,7 @@ type JsValue = <crate::js::Types as JsTypes>::JsValue;
 use crate::dom::{Attr, DOMException, Document};
 use crate::js::bindings::html::global_event_handlers::define_global_event_handlers;
 use crate::js::platform_objects::{
-    document_object, invalidate_cached_node_ids, resolve_element_object,
+    document_object, invalidate_cached_node_ids, object_for_existing_node,
     resolve_or_create_text_node_object, with_global_scope,
 };
 use crate::webidl::bindings::{
@@ -230,6 +230,46 @@ fn try_with_document<R>(
     Ok(f(&document, ec))
 }
 
+fn document_of(
+    this: &JsValue,
+    ec: &mut dyn ExecutionContext<crate::js::Types>,
+) -> Completion<Document, crate::js::Types> {
+    try_with_document(this, ec, |document, _ec| document.clone())
+}
+
+fn node_value(
+    document: &Document,
+    node_id: usize,
+    ec: &mut dyn ExecutionContext<crate::js::Types>,
+) -> Completion<JsValue, crate::js::Types> {
+    let obj = object_for_existing_node(Rc::clone(&document.node.document), node_id, ec)?;
+    Ok(crate::js::Types::value_from_object(obj))
+}
+
+fn nullable_node_value(
+    document: &Document,
+    node_id: Option<usize>,
+    ec: &mut dyn ExecutionContext<crate::js::Types>,
+) -> Completion<JsValue, crate::js::Types> {
+    match node_id {
+        Some(node_id) => node_value(document, node_id, ec),
+        None => Ok(ec.value_null()),
+    }
+}
+
+fn node_array_value(
+    document: &Document,
+    node_ids: Vec<usize>,
+    ec: &mut dyn ExecutionContext<crate::js::Types>,
+) -> Completion<JsValue, crate::js::Types> {
+    let array = ec.create_empty_array();
+    for node_id in node_ids {
+        let value = node_value(document, node_id, ec)?;
+        ec.array_push(&array, value)?;
+    }
+    Ok(crate::js::Types::value_from_object(array))
+}
+
 fn get_element_by_id(
     this: &JsValue,
     args: &[JsValue],
@@ -237,14 +277,9 @@ fn get_element_by_id(
 ) -> Completion<JsValue, crate::js::Types> {
     let value_undefined = ec.value_undefined();
     let id = ec.to_rust_string(args.first().cloned().unwrap_or(value_undefined))?;
-    let node_id = try_with_document(this, ec, |document, _ec| document.get_element_by_id(&id))?;
-    match node_id {
-        Some(node_id) => {
-            let obj = resolve_element_object(node_id, ec)?;
-            Ok(crate::js::Types::value_from_object(obj))
-        }
-        None => Ok(ec.value_null()),
-    }
+    let document = document_of(this, ec)?;
+    let node_id = document.get_element_by_id(&id);
+    nullable_node_value(&document, node_id, ec)
 }
 
 fn query_selector(
@@ -254,15 +289,11 @@ fn query_selector(
 ) -> Completion<JsValue, crate::js::Types> {
     let value_undefined = ec.value_undefined();
     let selector = ec.to_rust_string(args.first().cloned().unwrap_or(value_undefined.clone()))?;
-    let node_id = try_with_document(this, ec, |document, _ec| document.query_selector(&selector))?
+    let document = document_of(this, ec)?;
+    let node_id = document
+        .query_selector(&selector)
         .map_err(|error| ec.new_syntax_error(&error))?;
-    match node_id {
-        Some(node_id) => {
-            let obj = resolve_element_object(node_id, ec)?;
-            Ok(crate::js::Types::value_from_object(obj))
-        }
-        None => Ok(ec.value_null()),
-    }
+    nullable_node_value(&document, node_id, ec)
 }
 
 fn query_selector_all(
@@ -272,16 +303,11 @@ fn query_selector_all(
 ) -> Completion<JsValue, crate::js::Types> {
     let value_undefined = ec.value_undefined();
     let selector = ec.to_rust_string(args.first().cloned().unwrap_or(value_undefined.clone()))?;
-    let node_ids = try_with_document(this, ec, |document, _ec| {
-        document.query_selector_all(&selector)
-    })?
-    .map_err(|error| ec.new_syntax_error(&error))?;
-    let array = ec.create_empty_array();
-    for node_id in node_ids {
-        let obj = resolve_element_object(node_id, ec)?;
-        ec.array_push(&array, crate::js::Types::value_from_object(obj))?;
-    }
-    Ok(crate::js::Types::value_from_object(array))
+    let document = document_of(this, ec)?;
+    let node_ids = document
+        .query_selector_all(&selector)
+        .map_err(|error| ec.new_syntax_error(&error))?;
+    node_array_value(&document, node_ids, ec)
 }
 
 fn get_elements_by_tag_name(
@@ -292,16 +318,11 @@ fn get_elements_by_tag_name(
     let value_undefined = ec.value_undefined();
     let qualified_name =
         ec.to_rust_string(args.first().cloned().unwrap_or(value_undefined.clone()))?;
-    let node_ids = try_with_document(this, ec, |document, _ec| {
-        document.get_elements_by_tag_name(&qualified_name)
-    })?
-    .map_err(|error| ec.new_syntax_error(&error))?;
-    let array = ec.create_empty_array();
-    for node_id in node_ids {
-        let obj = resolve_element_object(node_id, ec)?;
-        ec.array_push(&array, crate::js::Types::value_from_object(obj))?;
-    }
-    Ok(crate::js::Types::value_from_object(array))
+    let document = document_of(this, ec)?;
+    let node_ids = document
+        .get_elements_by_tag_name(&qualified_name)
+        .map_err(|error| ec.new_syntax_error(&error))?;
+    node_array_value(&document, node_ids, ec)
 }
 
 fn create_element(
@@ -311,11 +332,9 @@ fn create_element(
 ) -> Completion<JsValue, crate::js::Types> {
     let value_undefined = ec.value_undefined();
     let local_name = ec.to_rust_string(args.first().cloned().unwrap_or(value_undefined))?;
-    let node_id = try_with_document(this, ec, |document, _ec| {
-        document.create_element(&local_name)
-    })?;
-    let obj = resolve_element_object(node_id, ec)?;
-    Ok(crate::js::Types::value_from_object(obj))
+    let document = document_of(this, ec)?;
+    let node_id = document.create_element(&local_name);
+    node_value(&document, node_id, ec)
 }
 
 fn create_element_ns(
@@ -334,12 +353,11 @@ fn create_element_ns(
     };
     let qualified_name =
         ec.to_rust_string(args.get(1).cloned().unwrap_or(value_undefined.clone()))?;
-    let node_id = try_with_document(this, ec, |document, _ec| {
-        document.create_element_ns(namespace.as_deref(), &qualified_name)
-    })?
-    .map_err(|error| ec.new_syntax_error(&error))?;
-    let obj = resolve_element_object(node_id, ec)?;
-    Ok(crate::js::Types::value_from_object(obj))
+    let document = document_of(this, ec)?;
+    let node_id = document
+        .create_element_ns(namespace.as_deref(), &qualified_name)
+        .map_err(|error| ec.new_syntax_error(&error))?;
+    node_value(&document, node_id, ec)
 }
 
 fn create_text_node(
@@ -435,15 +453,11 @@ fn get_body(
     _: &[JsValue],
     ec: &mut dyn ExecutionContext<crate::js::Types>,
 ) -> Completion<JsValue, crate::js::Types> {
-    let node_id = try_with_document(this, ec, |document, _ec| Document::body(document))?
+    let document = document_of(this, ec)?;
+    let node_id = document
+        .body()
         .map_err(|error| ec.new_syntax_error(&error))?;
-    match node_id {
-        Some(node_id) => {
-            let obj = resolve_element_object(node_id, ec)?;
-            Ok(crate::js::Types::value_from_object(obj))
-        }
-        None => Ok(ec.value_null()),
-    }
+    nullable_node_value(&document, node_id, ec)
 }
 
 fn get_implementation(
@@ -466,15 +480,11 @@ fn get_head(
     _: &[JsValue],
     ec: &mut dyn ExecutionContext<crate::js::Types>,
 ) -> Completion<JsValue, crate::js::Types> {
-    let node_id = try_with_document(this, ec, |document, _ec| Document::head(document))?
+    let document = document_of(this, ec)?;
+    let node_id = document
+        .head()
         .map_err(|error| ec.new_syntax_error(&error))?;
-    match node_id {
-        Some(node_id) => {
-            let obj = resolve_element_object(node_id, ec)?;
-            Ok(crate::js::Types::value_from_object(obj))
-        }
-        None => Ok(ec.value_null()),
-    }
+    nullable_node_value(&document, node_id, ec)
 }
 
 fn get_current_script(
@@ -482,14 +492,9 @@ fn get_current_script(
     _: &[JsValue],
     ec: &mut dyn ExecutionContext<crate::js::Types>,
 ) -> Completion<JsValue, crate::js::Types> {
-    let node_id = try_with_document(this, ec, |document, _ec| Document::current_script(document))?;
-    match node_id {
-        Some(node_id) => {
-            let obj = resolve_element_object(node_id, ec)?;
-            Ok(crate::js::Types::value_from_object(obj))
-        }
-        None => Ok(ec.value_null()),
-    }
+    let document = document_of(this, ec)?;
+    let node_id = document.current_script();
+    nullable_node_value(&document, node_id, ec)
 }
 
 fn get_document_element(
@@ -497,15 +502,9 @@ fn get_document_element(
     _: &[JsValue],
     ec: &mut dyn ExecutionContext<crate::js::Types>,
 ) -> Completion<JsValue, crate::js::Types> {
-    match try_with_document(this, ec, |document, _ec| {
-        Document::document_element(document)
-    })? {
-        Some(node_id) => {
-            let obj = resolve_element_object(node_id, ec)?;
-            Ok(crate::js::Types::value_from_object(obj))
-        }
-        None => Ok(ec.value_null()),
-    }
+    let document = document_of(this, ec)?;
+    let node_id = document.document_element();
+    nullable_node_value(&document, node_id, ec)
 }
 
 fn get_title(

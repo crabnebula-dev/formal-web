@@ -251,7 +251,7 @@ impl Document {
                         ec.new_type_error("implementation object is not a DOMImplementation")
                     });
             }
-            let implementation = DOMImplementation::new();
+            let implementation = DOMImplementation::new(self.clone());
             let object =
                 create_interface_instance::<Types, DOMImplementation>(implementation.clone(), ec)?;
             global_scope.store_dom_implementation_object(object, ec);

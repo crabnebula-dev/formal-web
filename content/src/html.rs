@@ -64,9 +64,7 @@ pub(crate) use html_dom_tree::{
     run_dom_post_connection_steps_for_document, run_dom_removing_steps_for_document,
 };
 pub use html_element::HTMLElement;
-pub(crate) use html_element::{
-    inline_style_properties_for_element, resolved_style_properties_for_element,
-};
+pub(crate) use html_element::resolved_style_properties_for_element;
 pub use html_iframe_element::HTMLIFrameElement;
 pub(crate) use html_iframe_element::attach_same_origin_child_document_for_traversable;
 pub(crate) use html_iframe_element::{

@@ -14,7 +14,7 @@ use crate::js::bindings::html::global_event_handlers::define_global_event_handle
 use crate::webidl::bindings::{AttributeDef, InterfaceDefinition, OperationDef, WebIdlInterface};
 use crate::webidl::callback_function_value;
 
-use super::style_declaration_object;
+use crate::cssom::CSSStyleDeclaration;
 
 use js_engine::{Completion, ExecutionContext, JsTypes};
 
@@ -890,7 +890,12 @@ fn get_computed_style_method(
         window_computed_style_properties_for_element(&element, pseudo_elt.as_deref())
     };
     // ec borrow from with_object_any is released here.
-    style_declaration_object(&properties, ec).map(crate::js::Types::value_from_object)
+    let declaration_block = CSSStyleDeclaration::new(None, Some(properties), ec)?;
+    declaration_block
+        .reflector
+        .clone()
+        .map(crate::js::Types::value_from_object)
+        .ok_or_else(|| ec.new_type_error("CSSStyleDeclaration has no reflector"))
 }
 
 /// <https://html.spec.whatwg.org/#the-windowproxy-exotic-object>

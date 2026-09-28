@@ -369,6 +369,15 @@ to it receives the event. Remaining work: the `disabled` attribute and
 `media` are reflected but not applied, and `rel=preload`, `rel=icon` and the
 other link types fetch nothing.
 
+## `noscript` content is rendered with scripting enabled
+
+Observed on Element Web's `index.html`: the text inside its `<noscript>`
+element shows in the viewport while the page's scripts run.  Whether the
+parser tokenizes the element's content as raw text (the scripting-enabled
+branch of the "in head"/"in body" insertion modes) or the user-agent
+stylesheet's `noscript { display: none }` rule is missing was not
+investigated.
+
 ## Related documentation
 
 - `content/src/webidl/README.md` — Web IDL bindings infrastructure, platform object pattern

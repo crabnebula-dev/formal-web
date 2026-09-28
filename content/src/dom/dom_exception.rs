@@ -66,6 +66,11 @@ impl DOMException {
         Self::new(String::new(), String::from("SecurityError"))
     }
 
+    /// <https://webidl.spec.whatwg.org/#dfn-error-names-table>
+    pub(crate) fn no_modification_allowed_error() -> Self {
+        Self::new(String::new(), String::from("NoModificationAllowedError"))
+    }
+
     /// <https://webidl.spec.whatwg.org/#dom-domexception-message>
     pub(crate) fn message_value(&self) -> &str {
         &self.message

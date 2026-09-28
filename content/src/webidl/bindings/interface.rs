@@ -67,6 +67,13 @@ pub(crate) trait WebIdlInterface<T: JsTypes + JsTypesWithRealm>: 'static {
         Self::is_global()
     }
 
+    /// <https://webidl.spec.whatwg.org/#dfn-value-iterator>
+    // Note: true for an interface that has an indexed property getter and an
+    // integer-typed attribute named "length" and no iterable declaration.
+    fn value_iterator() -> bool {
+        false
+    }
+
     /// <https://webidl.spec.whatwg.org/#call-a-user-objects-operation>
     fn create_platform_object(
         _new_target: &T::JsValue,
@@ -180,6 +187,29 @@ where
             set: None,
         },
     )?;
+
+    // <https://webidl.spec.whatwg.org/#es-iterator>
+    // "If the interface has an indexed property getter and an integer-typed attribute named "length", then a property must exist on the interface prototype object whose name is @@iterator, with attributes { [[Writable]]: true, [[Enumerable]]: false, [[Configurable]]: true } and whose value is the initial value of the %Array.prototype.values% property."
+    if I::value_iterator() {
+        let array = engine.create_empty_array();
+        let array_prototype = engine
+            .get_prototype_of(array)?
+            .ok_or_else(|| engine.new_type_error("%Array.prototype% is missing"))?;
+        let array_prototype_values = EcmascriptHost::get(engine, &array_prototype, "values")?;
+        let iterator_key = engine.property_key_from_well_known_symbol("iterator");
+        engine.define_property_or_throw(
+            proto.clone(),
+            iterator_key,
+            JsPropertyDescriptor {
+                value: Some(array_prototype_values),
+                writable: Some(true),
+                enumerable: Some(false),
+                configurable: Some(true),
+                get: None,
+                set: None,
+            },
+        )?;
+    }
 
     // Step 4: "Let unforgeables be OrdinaryObjectCreate(null)."
     // Step 5: "Define the unforgeable regular operations of I on unforgeables, given realm."

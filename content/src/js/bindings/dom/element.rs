@@ -12,7 +12,7 @@ use crate::html::{
 };
 use crate::js::bindings::html::global_event_handlers::define_global_event_handlers;
 use crate::js::bindings::this_as;
-use crate::js::platform_objects::{invalidate_cached_node_ids, resolve_element_object};
+use crate::js::platform_objects::{invalidate_cached_node_ids, object_for_existing_node};
 use crate::webidl::bindings::{
     AttributeDef, InterfaceDefinition, OperationDef, WebIdlInterface, create_interface_instance,
 };
@@ -708,11 +708,15 @@ fn query_selector(
 ) -> Completion<JsValue, crate::js::Types> {
     let value_undefined = ec.value_undefined();
     let selector = ec.to_rust_string(args.first().cloned().unwrap_or(value_undefined.clone()))?;
-    let node_id = try_with_element_ref(this, ec, |element| element.query_selector(&selector))?
-        .map_err(|error| ec.new_syntax_error(&error))?;
-    match node_id {
+    let (document, node_id) = try_with_element_ref(this, ec, |element| {
+        (
+            element.node.document.clone(),
+            element.query_selector(&selector),
+        )
+    })?;
+    match node_id.map_err(|error| ec.new_syntax_error(&error))? {
         Some(node_id) => {
-            let obj = resolve_element_object(node_id, ec)?;
+            let obj = object_for_existing_node(document, node_id, ec)?;
             Ok(crate::js::Types::value_from_object(obj))
         }
         None => Ok(ec.value_null()),
@@ -738,11 +742,12 @@ fn closest(
 ) -> Completion<JsValue, crate::js::Types> {
     let value_undefined = ec.value_undefined();
     let selector = ec.to_rust_string(args.first().cloned().unwrap_or(value_undefined.clone()))?;
-    let node_id = try_with_element_ref(this, ec, |element| element.closest(&selector))?
-        .map_err(|error| ec.new_syntax_error(&error))?;
-    match node_id {
+    let (document, node_id) = try_with_element_ref(this, ec, |element| {
+        (element.node.document.clone(), element.closest(&selector))
+    })?;
+    match node_id.map_err(|error| ec.new_syntax_error(&error))? {
         Some(node_id) => {
-            let obj = resolve_element_object(node_id, ec)?;
+            let obj = object_for_existing_node(document, node_id, ec)?;
             Ok(crate::js::Types::value_from_object(obj))
         }
         None => Ok(ec.value_null()),
@@ -756,11 +761,16 @@ fn query_selector_all(
 ) -> Completion<JsValue, crate::js::Types> {
     let value_undefined = ec.value_undefined();
     let selector = ec.to_rust_string(args.first().cloned().unwrap_or(value_undefined.clone()))?;
-    let node_ids = try_with_element_ref(this, ec, |element| element.query_selector_all(&selector))?
-        .map_err(|error| ec.new_syntax_error(&error))?;
+    let (document, node_ids) = try_with_element_ref(this, ec, |element| {
+        (
+            element.node.document.clone(),
+            element.query_selector_all(&selector),
+        )
+    })?;
+    let node_ids = node_ids.map_err(|error| ec.new_syntax_error(&error))?;
     let array = ec.create_empty_array();
     for node_id in node_ids {
-        let obj = resolve_element_object(node_id, ec)?;
+        let obj = object_for_existing_node(document.clone(), node_id, ec)?;
         ec.array_push(&array, crate::js::Types::value_from_object(obj))?;
     }
     Ok(crate::js::Types::value_from_object(array))

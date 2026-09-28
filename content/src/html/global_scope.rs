@@ -85,6 +85,10 @@ pub enum GlobalScopeKind {
 /// <https://html.spec.whatwg.org/#global-object>
 #[gc_struct]
 pub struct CachedNodeObject {
+    /// <https://dom.spec.whatwg.org/#concept-node-document>
+    #[ignore_trace]
+    pub document: Rc<RefCell<BaseDocument>>,
+
     /// <https://dom.spec.whatwg.org/#interface-node>
     #[ignore_trace]
     pub node_id: usize,
@@ -1319,27 +1323,33 @@ impl GlobalScope {
 
     pub(crate) fn cached_node_object(
         &self,
+        document: &Rc<RefCell<BaseDocument>>,
         node_id: usize,
         ec: &mut dyn ExecutionContext<Types>,
     ) -> Option<JsObject> {
         self.node_objects
             .borrow(ec)
             .iter()
-            .find(|entry| entry.node_id == node_id)
+            .find(|entry| entry.node_id == node_id && Rc::ptr_eq(&entry.document, document))
             .map(|entry| entry.object.clone())
     }
 
     pub(crate) fn cache_node_object(
         &self,
+        document: Rc<RefCell<BaseDocument>>,
         node_id: usize,
         object: JsObject,
         ec: &mut dyn ExecutionContext<Types>,
     ) {
-        self.node_objects
-            .borrow_mut(ec)
-            .push(CachedNodeObject { node_id, object });
+        self.node_objects.borrow_mut(ec).push(CachedNodeObject {
+            document,
+            node_id,
+            object,
+        });
     }
 
+    /// Drops the wrappers of the global's document nodes whose ids are given;
+    /// nodes of other documents keep theirs.
     pub(crate) fn invalidate_cached_node_ids(
         &self,
         node_ids: &[usize],
@@ -1349,10 +1359,11 @@ impl GlobalScope {
             return;
         }
 
+        let document = self.document();
         let node_ids = node_ids.iter().copied().collect::<HashSet<_>>();
-        self.node_objects
-            .borrow_mut(ec)
-            .retain(|entry| !node_ids.contains(&entry.node_id));
+        self.node_objects.borrow_mut(ec).retain(|entry| {
+            !(node_ids.contains(&entry.node_id) && Rc::ptr_eq(&entry.document, &document))
+        });
     }
 
     /// Clone every cached node wrapper out of the cache, for teardown walks

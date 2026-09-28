@@ -3,6 +3,7 @@
 //! These use [`ExecutionContext::with_object_any`] / `with_object_any_mut`
 //! to extract native Rust data from JavaScript platform objects.
 
+use crate::cssom::CSSStyleDeclaration;
 use crate::dom::{
     AbortController, AbortSignal, Attr, Document, Element, Event, EventTarget, HasEvent,
     NamedNodeMap, Node,
@@ -254,6 +255,9 @@ fn with_platform_reflector_slot_mut<R>(
     }
     if let Some(map) = data.downcast_mut::<NamedNodeMap>() {
         return Some(f(&mut map.reflector));
+    }
+    if let Some(declaration_block) = data.downcast_mut::<CSSStyleDeclaration>() {
+        return Some(f(&mut declaration_block.reflector));
     }
     slot!(MessagePort, port, port.event_target);
     slot!(Worker, worker, worker.event_target);

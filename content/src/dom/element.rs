@@ -17,6 +17,7 @@ use super::namespaces::{
     ValidateAndExtractContext, is_a_valid_attribute_local_name, validate_and_extract,
 };
 use super::{Attr, Attribute, DOMException, NamedNodeMap, Node};
+use crate::cssom::CSSStyleDeclaration;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct DomRect {
@@ -83,6 +84,9 @@ pub struct Element {
 
     /// <https://dom.spec.whatwg.org/#dom-element-attributes>
     attributes: GcCell<Option<NamedNodeMap>>,
+
+    /// <https://drafts.csswg.org/cssom/#dom-elementcssinlinestyle-style>
+    pub(crate) style: GcCell<Option<CSSStyleDeclaration>>,
 }
 
 impl EventTargetAccess for Element {
@@ -101,6 +105,7 @@ impl Element {
             node: Node::new(document, node_id, ec),
             attribute_nodes: gc_cell_new(Vec::new(), ec),
             attributes: gc_cell_new(None, ec),
+            style: gc_cell_new(None, ec),
         }
     }
 
