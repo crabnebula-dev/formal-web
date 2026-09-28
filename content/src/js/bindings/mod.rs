@@ -1,12 +1,15 @@
 pub(crate) mod cssom;
+pub(crate) mod cssom_view;
 pub(crate) mod dom;
 pub(crate) mod encoding;
 pub(crate) mod fetch;
 pub(crate) mod file_api;
+pub(crate) mod geometry;
 pub(crate) mod html;
 pub(crate) mod initialization;
 #[cfg(feature = "webrtc")]
 pub(crate) mod mediacapture_streams;
+pub(crate) mod resize_observer;
 pub(crate) mod streams;
 pub(crate) mod testutils;
 pub(crate) mod ui_events;

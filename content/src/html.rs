@@ -31,6 +31,7 @@ pub(crate) mod message_event;
 pub(crate) mod messageport;
 pub(crate) mod navigator;
 pub(crate) mod promise_rejection_event;
+pub(crate) mod storage;
 pub(crate) mod structured_data;
 pub(crate) mod timers;
 pub(crate) mod ui_events;
@@ -58,6 +59,7 @@ pub use global_scope::GlobalScope;
 pub use global_scope::GlobalScopeKind;
 pub(crate) use global_scope::TimerHandler;
 pub(crate) use global_scope::{BrowsingContextWindow, NewDocumentRegistry, VideoPaintRegistry};
+pub use storage::Storage;
 
 pub use html_anchor_element::HTMLAnchorElement;
 pub(crate) use html_dom_tree::{

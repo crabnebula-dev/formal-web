@@ -12,10 +12,13 @@ use super::namespaces::{
     ValidateAndExtractContext, is_a_valid_attribute_local_name, validate_and_extract,
 };
 use super::{Attr, Attribute, DOMException, DOMImplementation, Element, Node};
+use crate::html::Storage;
 use crate::infra::strip_and_collapse_ascii_whitespace;
 use crate::js::Types;
 use crate::js::platform_objects::with_global_scope;
+use crate::resize_observer::ResizeObserver;
 use crate::webidl::bindings::create_interface_instance;
+use js_engine::gc::{GcCell, gc_cell_new};
 use js_engine::{Completion, ExecutionContext, gc_struct};
 
 fn collect_subtree_node_ids(document: &BaseDocument, node_id: usize, node_ids: &mut Vec<usize>) {
@@ -57,6 +60,15 @@ pub struct Document {
     /// <https://html.spec.whatwg.org/#already-started>
     #[ignore_trace]
     already_started_scripts: Rc<RefCell<HashSet<usize>>>,
+
+    /// <https://drafts.csswg.org/resize-observer/#dom-document-resizeobservers-slot>
+    pub(crate) resize_observers: GcCell<Vec<ResizeObserver>>,
+
+    /// <https://html.spec.whatwg.org/#local-storage-holder>
+    pub(crate) local_storage_holder: GcCell<Option<Storage>>,
+
+    /// <https://html.spec.whatwg.org/#session-storage-holder>
+    pub(crate) session_storage_holder: GcCell<Option<Storage>>,
 }
 
 impl Document {
@@ -70,6 +82,9 @@ impl Document {
             creation_url,
             current_script: Rc::new(Cell::new(None)),
             already_started_scripts: Rc::new(RefCell::new(HashSet::new())),
+            resize_observers: gc_cell_new(Vec::new(), ec),
+            local_storage_holder: gc_cell_new(None, ec),
+            session_storage_holder: gc_cell_new(None, ec),
         }
     }
 

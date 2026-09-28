@@ -4,11 +4,14 @@
 //! to extract native Rust data from JavaScript platform objects.
 
 use crate::cssom::CSSStyleDeclaration;
+use crate::cssom_view::MediaQueryList;
 use crate::dom::{
     AbortController, AbortSignal, Attr, Document, Element, Event, EventTarget, HasEvent,
     NamedNodeMap, Node,
 };
 use crate::fetch::Headers;
+use crate::geometry::DOMRectReadOnly;
+use crate::html::Storage;
 use crate::html::{
     CanvasRenderingContext2D, DedicatedWorkerGlobalScope, HTMLAnchorElement, HTMLCanvasElement,
     HTMLElement, HTMLIFrameElement, HTMLInputElement, HTMLLinkElement, HTMLMediaElement,
@@ -21,6 +24,7 @@ use crate::js::platform_objects::with_global_scope;
 use crate::mediacapture_streams::{
     MediaDevices, MediaStream, MediaStreamTrack, MediaStreamTrackEvent,
 };
+use crate::resize_observer::{ResizeObserver, ResizeObserverEntry, ResizeObserverSize};
 use crate::ui_events::{MouseEvent, UIEvent};
 use crate::url_standard::URLSearchParams;
 #[cfg(feature = "webrtc")]
@@ -168,6 +172,11 @@ fn with_platform_event_target_mut<R>(
     #[cfg(feature = "webrtc")]
     target!(RTCDataChannel, channel, channel.event_target);
     target!(WebSocket, socket, socket.event_target);
+    target!(
+        MediaQueryList,
+        media_query_list,
+        media_query_list.event_target
+    );
     #[cfg(feature = "webrtc")]
     target!(MediaStreamTrack, track, track.event_target);
     #[cfg(feature = "webrtc")]
@@ -259,6 +268,18 @@ fn with_platform_reflector_slot_mut<R>(
     if let Some(declaration_block) = data.downcast_mut::<CSSStyleDeclaration>() {
         return Some(f(&mut declaration_block.reflector));
     }
+    if let Some(rect) = data.downcast_mut::<DOMRectReadOnly>() {
+        return Some(f(&mut rect.reflector));
+    }
+    if let Some(entry) = data.downcast_mut::<ResizeObserverEntry>() {
+        return Some(f(&mut entry.reflector));
+    }
+    if let Some(size) = data.downcast_mut::<ResizeObserverSize>() {
+        return Some(f(&mut size.reflector));
+    }
+    if let Some(storage) = data.downcast_mut::<Storage>() {
+        return Some(f(&mut storage.reflector));
+    }
     slot!(MessagePort, port, port.event_target);
     slot!(Worker, worker, worker.event_target);
     #[cfg(feature = "webrtc")]
@@ -266,6 +287,11 @@ fn with_platform_reflector_slot_mut<R>(
     #[cfg(feature = "webrtc")]
     slot!(RTCDataChannel, channel, channel.event_target);
     slot!(WebSocket, socket, socket.event_target);
+    slot!(
+        MediaQueryList,
+        media_query_list,
+        media_query_list.event_target
+    );
     #[cfg(feature = "webrtc")]
     slot!(MediaStreamTrack, track, track.event_target);
     #[cfg(feature = "webrtc")]
@@ -452,6 +478,16 @@ pub(crate) fn try_set_event_target_reflector(
             return;
         }
 
+        // A ResizeObserver keeps its reflector in a shared cell so the
+        // document's [[resizeObservers]] clone sees it.
+        if let Some(observer) = ec
+            .with_object_any(&obj)
+            .and_then(|data| data.downcast_ref::<ResizeObserver>().cloned())
+        {
+            *observer.reflector.borrow_mut(ec) = reflector;
+            return;
+        }
+
         // Set the reflector on the embedded target; capture the Worker id so
         // the owner realm's registered clone can be synced after the borrow
         // is released.
@@ -572,6 +608,8 @@ pub(crate) fn event_target_from_js_object(
             Some(port.event_target.clone())
         } else if let Some(socket) = data.downcast_ref::<WebSocket>() {
             Some(socket.event_target.clone())
+        } else if let Some(media_query_list) = data.downcast_ref::<MediaQueryList>() {
+            Some(media_query_list.event_target.clone())
         } else if let Some(target) = webrtc_event_target(data) {
             Some(target)
         } else if let Some(worker) = data.downcast_ref::<Worker>() {

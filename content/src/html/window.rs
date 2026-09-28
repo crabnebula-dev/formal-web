@@ -22,7 +22,7 @@ use crate::webidl::{relevant_realm_global_this_value, security_error_value, synt
 use super::resolved_style_properties_for_element;
 use super::structured_data::safe_passing_of_structured_data::structured_serialize_with_transfer;
 use super::windowproxy::create_window_proxy;
-use super::{GlobalScope, Location, Navigator, the_rules_for_choosing_a_navigable};
+use super::{GlobalScope, Location, Navigator, Storage, the_rules_for_choosing_a_navigable};
 use js_engine::gc_struct;
 
 /// <https://html.spec.whatwg.org/#window>
@@ -256,6 +256,72 @@ impl Window {
         let object = create_interface_instance::<Types, Location>(location.clone(), ec)?;
         self.global_scope.store_location_object(object, ec);
         Ok(location)
+    }
+
+    /// <https://html.spec.whatwg.org/#concept-document-window>
+    fn associated_document(
+        &self,
+        ec: &mut dyn ExecutionContext<Types>,
+    ) -> Completion<Document, Types> {
+        let document_object = self
+            .global_scope
+            .document_object(ec)
+            .ok_or_else(|| ec.new_type_error("the Window has no associated Document"))?;
+        ec.with_object_any(&document_object)
+            .and_then(|data| data.downcast_ref::<Document>().cloned())
+            .ok_or_else(|| ec.new_type_error("the Window's document is not a Document"))
+    }
+
+    /// <https://html.spec.whatwg.org/#dom-localstorage>
+    pub(crate) fn local_storage(
+        &self,
+        ec: &mut dyn ExecutionContext<Types>,
+    ) -> Completion<Storage, Types> {
+        let document = self.associated_document(ec)?;
+        // Step 1: "If this's associated Document's local storage holder is non-null, then return it."
+        if let Some(storage) = document.local_storage_holder.borrow(ec).clone() {
+            return Ok(storage);
+        }
+
+        // Step 2: "Let map be the result of running obtain a local storage bottle map with this's relevant settings object and "localStorage"."
+        // Step 3: "If map is failure, then throw a "SecurityError" DOMException."
+        // Note: the bottle map is an in-memory map created with the Storage
+        // object; storage partitioning is not implemented, so obtaining it
+        // cannot fail.
+        // Step 4: "Let storage be a new Storage object whose map is map."
+        let storage = Storage::new(ec)?;
+
+        // Step 5: "Set this's associated Document's local storage holder to storage."
+        *document.local_storage_holder.borrow_mut(ec) = Some(storage.clone());
+
+        // Step 6: "Return storage."
+        Ok(storage)
+    }
+
+    /// <https://html.spec.whatwg.org/#dom-sessionstorage>
+    pub(crate) fn session_storage(
+        &self,
+        ec: &mut dyn ExecutionContext<Types>,
+    ) -> Completion<Storage, Types> {
+        let document = self.associated_document(ec)?;
+        // Step 1: "If this's associated Document's session storage holder is non-null, then return it."
+        if let Some(storage) = document.session_storage_holder.borrow(ec).clone() {
+            return Ok(storage);
+        }
+
+        // Step 2: "Let map be the result of running obtain a session storage bottle map with this's relevant settings object and "sessionStorage"."
+        // Step 3: "If map is failure, then throw a "SecurityError" DOMException."
+        // Note: the bottle map is an in-memory map created with the Storage
+        // object; storage partitioning is not implemented, so obtaining it
+        // cannot fail.
+        // Step 4: "Let storage be a new Storage object whose map is map."
+        let storage = Storage::new(ec)?;
+
+        // Step 5: "Set this's associated Document's session storage holder to storage."
+        *document.session_storage_holder.borrow_mut(ec) = Some(storage.clone());
+
+        // Step 6: "Return storage."
+        Ok(storage)
     }
 
     /// <https://html.spec.whatwg.org/#dom-navigator>

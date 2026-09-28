@@ -19,6 +19,7 @@ mod navigator;
 mod offscreen_canvas;
 mod offscreen_canvas_rendering_context_2d;
 mod promise_rejection_event;
+mod storage;
 pub(crate) mod window;
 pub(crate) mod windowproxy;
 pub(crate) mod worker;

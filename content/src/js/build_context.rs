@@ -127,6 +127,7 @@ fn setup_realm(engine: &mut Engine, _document: Rc<RefCell<BaseDocument>>) -> Res
     #[cfg(not(boa_backend))]
     let document = _document;
     use crate::cssom::CSSStyleDeclaration;
+    use crate::cssom_view::MediaQueryList;
     use crate::dom::{
         AbortController, AbortSignal, Attr, DOMException, DOMImplementation, Document, Element,
         Event, EventTarget, NamedNodeMap, Node,
@@ -134,8 +135,10 @@ fn setup_realm(engine: &mut Engine, _document: Rc<RefCell<BaseDocument>>) -> Res
     use crate::encoding::{TextDecoder, TextEncoder};
     use crate::fetch::{FetchApiRequest, Headers, Response};
     use crate::file_api::{Blob, File};
+    use crate::geometry::DOMRectReadOnly;
     #[cfg(not(boa_backend))]
     use crate::html::GlobalScope;
+    use crate::html::Storage;
     use crate::html::{
         CanvasRenderingContext2D, HTMLAnchorElement, HTMLCanvasElement, HTMLElement,
         HTMLIFrameElement, HTMLInputElement, HTMLLinkElement, HTMLMediaElement, HTMLScriptElement,
@@ -143,6 +146,7 @@ fn setup_realm(engine: &mut Engine, _document: Rc<RefCell<BaseDocument>>) -> Res
         OffscreenCanvas, OffscreenCanvasRenderingContext2D, PromiseRejectionEvent, Window,
         WindowProxy, Worker,
     };
+    use crate::resize_observer::{ResizeObserver, ResizeObserverEntry, ResizeObserverSize};
     use crate::streams::{
         ByteLengthQueuingStrategy, CountQueuingStrategy, ReadableByteStreamController,
         ReadableStream, ReadableStreamBYOBReader, ReadableStreamBYOBRequest,
@@ -227,6 +231,12 @@ fn setup_realm(engine: &mut Engine, _document: Rc<RefCell<BaseDocument>>) -> Res
     reg!(Attr);
     reg!(NamedNodeMap);
     reg!(CSSStyleDeclaration);
+    reg!(DOMRectReadOnly);
+    reg!(ResizeObserver);
+    reg!(ResizeObserverEntry);
+    reg!(ResizeObserverSize);
+    reg!(Storage);
+    reg!(MediaQueryList);
     reg!(HTMLElement);
     reg!(HTMLAnchorElement);
     reg!(HTMLScriptElement);
@@ -319,6 +329,10 @@ fn setup_realm(engine: &mut Engine, _document: Rc<RefCell<BaseDocument>>) -> Res
         wire_registry_prototype::<crate::js::Types, WebSocket, EventTarget>(engine);
         wire_registry_prototype::<crate::js::Types, CloseEvent, Event>(engine);
         wire_registry_constructor_prototype::<crate::js::Types, WebSocket, EventTarget>(engine);
+        wire_registry_prototype::<crate::js::Types, MediaQueryList, EventTarget>(engine);
+        wire_registry_constructor_prototype::<crate::js::Types, MediaQueryList, EventTarget>(
+            engine,
+        );
         wire_registry_constructor_prototype::<crate::js::Types, CloseEvent, Event>(engine);
         wire_registry_prototype::<crate::js::Types, RTCPeerConnection, EventTarget>(engine);
         wire_registry_prototype::<crate::js::Types, RTCDataChannel, EventTarget>(engine);

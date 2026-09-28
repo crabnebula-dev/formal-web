@@ -4,9 +4,12 @@ pub(crate) mod ui_event;
 
 pub mod css;
 pub mod cssom;
+pub mod cssom_view;
 pub(crate) mod fetch;
+pub mod geometry;
 pub mod infra;
 pub mod js;
+pub mod resize_observer;
 pub mod testutils;
 
 pub mod dom;
@@ -53,6 +56,10 @@ use crate::infra::strip_and_collapse_ascii_whitespace;
 use crate::js::Engine;
 use crate::js::downcast::try_with_event_target_mut;
 use crate::js::platform_objects::with_global_scope;
+use crate::resize_observer::{
+    broadcast_active_observations, deliver_the_resize_loop_error_notification,
+    gather_active_observations_at_depth, has_active_observations, has_skipped_observations,
+};
 use crate::ui_event::deserialize_ui_event;
 #[cfg(all(boa_backend, feature = "wasm"))]
 use crate::wasm::{WasmResult, compile_continuation, compile_rejection, instantiate_continuation};
@@ -2645,6 +2652,47 @@ impl ContentProcess {
                     // Step 16.2.1: "Recalculate styles and update layout for `doc`."
                     // `resolve` advances style, layout, and resource-driven document updates.
                     document_guard.resolve(animation_time);
+                }
+
+                // Step 16.3: "For each `doc` of `docs`, run the resize observer steps given `doc`."
+                // <https://drafts.csswg.org/resize-observer/#html-event-loop>
+                // Step 1: "Let resizeObserverDepth be 0."
+                let mut resize_observer_depth = 0;
+                let resize_document = document.settings.document.clone();
+                // Step 2: "While true:"
+                loop {
+                    // Step 2.1: "Recalculate styles and update layout for doc."
+                    // Note: the first iteration reuses the layout of step 16.2.1 above.
+                    if resize_observer_depth > 0 {
+                        document.document.borrow_mut().resolve(animation_time);
+                    }
+
+                    // Step 2.2: "Gather active observations at depth resizeObserverDepth for doc."
+                    gather_active_observations_at_depth(
+                        &resize_document,
+                        resize_observer_depth,
+                        document.settings.ec(),
+                    );
+
+                    // Step 2.3: "If doc has active observations:"
+                    if has_active_observations(&resize_document, document.settings.ec()) {
+                        // Step 2.3.1: "Set resizeObserverDepth to the result of broadcasting active observations given doc."
+                        resize_observer_depth =
+                            broadcast_active_observations(&resize_document, document.settings.ec())
+                                .map_err(|error| {
+                                    format!("broadcast active observations failed: {error:?}")
+                                })?;
+                        // Step 2.3.2: "Continue."
+                        continue;
+                    }
+
+                    // Step 2.4: "Otherwise, break."
+                    break;
+                }
+
+                // Step 3: "If doc has skipped observations then deliver resize loop error notification given doc."
+                if has_skipped_observations(&resize_document, document.settings.ec()) {
+                    deliver_the_resize_loop_error_notification();
                 }
 
                 info!(

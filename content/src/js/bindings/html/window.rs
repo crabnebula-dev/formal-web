@@ -11,10 +11,14 @@ use crate::js::Types;
 use crate::js::bindings::event_handlers;
 use crate::js::bindings::fetch::fetch_operation;
 use crate::js::bindings::html::global_event_handlers::define_global_event_handlers;
-use crate::webidl::bindings::{AttributeDef, InterfaceDefinition, OperationDef, WebIdlInterface};
+use crate::webidl::bindings::{
+    AttributeDef, InterfaceDefinition, OperationDef, WebIdlInterface, create_interface_instance,
+};
 use crate::webidl::callback_function_value;
 
 use crate::cssom::CSSStyleDeclaration;
+use crate::cssom_view::MediaQueryList;
+use crate::dom::DOMException;
 
 use js_engine::{Completion, ExecutionContext, JsTypes};
 
@@ -100,6 +104,45 @@ impl WebIdlInterface<crate::js::Types> for Window {
             id: "name",
             getter: get_name,
             setter: Some(set_name),
+            static_: false,
+            unforgeable: false,
+            promise_type: false,
+            legacy_lenient_this: false,
+            replaceable: false,
+            put_forwards: None,
+            legacy_lenient_setter: false,
+            exposed: None,
+        });
+        def.add_attribute(AttributeDef {
+            id: "isSecureContext",
+            getter: get_is_secure_context,
+            setter: None,
+            static_: false,
+            unforgeable: false,
+            promise_type: false,
+            legacy_lenient_this: false,
+            replaceable: false,
+            put_forwards: None,
+            legacy_lenient_setter: false,
+            exposed: None,
+        });
+        def.add_attribute(AttributeDef {
+            id: "localStorage",
+            getter: get_local_storage,
+            setter: None,
+            static_: false,
+            unforgeable: false,
+            promise_type: false,
+            legacy_lenient_this: false,
+            replaceable: false,
+            put_forwards: None,
+            legacy_lenient_setter: false,
+            exposed: None,
+        });
+        def.add_attribute(AttributeDef {
+            id: "sessionStorage",
+            getter: get_session_storage,
+            setter: None,
             static_: false,
             unforgeable: false,
             promise_type: false,
@@ -356,6 +399,33 @@ impl WebIdlInterface<crate::js::Types> for Window {
             exposed: None,
         });
         def.add_operation(OperationDef {
+            id: "btoa",
+            length: 1,
+            method: btoa_method,
+            static_: false,
+            unforgeable: false,
+            promise_type: false,
+            exposed: None,
+        });
+        def.add_operation(OperationDef {
+            id: "atob",
+            length: 1,
+            method: atob_method,
+            static_: false,
+            unforgeable: false,
+            promise_type: false,
+            exposed: None,
+        });
+        def.add_operation(OperationDef {
+            id: "matchMedia",
+            length: 1,
+            method: match_media_method,
+            static_: false,
+            unforgeable: false,
+            promise_type: false,
+            exposed: None,
+        });
+        def.add_operation(OperationDef {
             id: "fetch",
             length: 1,
             method: fetch_operation,
@@ -396,6 +466,57 @@ fn structured_clone_method(
     // construct_typed_array_view looks up the typed-array constructor on it).
     let window = window_domain_from(this, ec)?;
     window.structured_clone(value, options, ec)
+}
+
+fn btoa_method(
+    this: &JsValue,
+    args: &[JsValue],
+    ec: &mut dyn ExecutionContext<crate::js::Types>,
+) -> Completion<JsValue, crate::js::Types> {
+    let undefined = ec.value_undefined();
+    let data = ec.to_rust_string(args.first().cloned().unwrap_or(undefined))?;
+    let window = window_domain_from(this, ec)?;
+    let encoded = window
+        .btoa(&data)
+        .map_err(|error| dom_exception_value(error, ec))?;
+    Ok(ec.value_from_string(ec.js_string_from_str(&encoded)))
+}
+
+fn atob_method(
+    this: &JsValue,
+    args: &[JsValue],
+    ec: &mut dyn ExecutionContext<crate::js::Types>,
+) -> Completion<JsValue, crate::js::Types> {
+    let undefined = ec.value_undefined();
+    let data = ec.to_rust_string(args.first().cloned().unwrap_or(undefined))?;
+    let window = window_domain_from(this, ec)?;
+    let decoded = window
+        .atob(&data)
+        .map_err(|error| dom_exception_value(error, ec))?;
+    Ok(ec.value_from_string(ec.js_string_from_str(&decoded)))
+}
+
+fn dom_exception_value(
+    error: DOMException,
+    ec: &mut dyn ExecutionContext<crate::js::Types>,
+) -> JsValue {
+    create_interface_instance::<crate::js::Types, DOMException>(error, ec)
+        .map(crate::js::Types::value_from_object)
+        .unwrap_or_else(|err| err)
+}
+
+fn match_media_method(
+    this: &JsValue,
+    args: &[JsValue],
+    ec: &mut dyn ExecutionContext<crate::js::Types>,
+) -> Completion<JsValue, crate::js::Types> {
+    let undefined = ec.value_undefined();
+    let query = ec.to_rust_string(args.first().cloned().unwrap_or(undefined))?;
+    let window = window_domain_from(this, ec)?;
+    let media_query_list = window.match_media(&query, ec);
+    let object =
+        create_interface_instance::<crate::js::Types, MediaQueryList>(media_query_list, ec)?;
+    Ok(crate::js::Types::value_from_object(object))
 }
 
 fn parse_structured_clone_options(
@@ -729,6 +850,43 @@ fn get_location(
     Ok(<crate::js::Types as JsTypes>::value_from_object(
         location_object,
     ))
+}
+
+fn get_is_secure_context(
+    this: &JsValue,
+    _: &[JsValue],
+    ec: &mut dyn ExecutionContext<crate::js::Types>,
+) -> Completion<JsValue, crate::js::Types> {
+    let window = window_domain_from(this, ec)?;
+    Ok(ec.value_from_bool(window.is_secure_context()))
+}
+
+fn get_local_storage(
+    this: &JsValue,
+    _: &[JsValue],
+    ec: &mut dyn ExecutionContext<crate::js::Types>,
+) -> Completion<JsValue, crate::js::Types> {
+    let window = window_domain_from(this, ec)?;
+    window
+        .local_storage(ec)?
+        .reflector
+        .clone()
+        .map(crate::js::Types::value_from_object)
+        .ok_or_else(|| ec.new_type_error("Storage has no reflector"))
+}
+
+fn get_session_storage(
+    this: &JsValue,
+    _: &[JsValue],
+    ec: &mut dyn ExecutionContext<crate::js::Types>,
+) -> Completion<JsValue, crate::js::Types> {
+    let window = window_domain_from(this, ec)?;
+    window
+        .session_storage(ec)?
+        .reflector
+        .clone()
+        .map(crate::js::Types::value_from_object)
+        .ok_or_else(|| ec.new_type_error("Storage has no reflector"))
 }
 
 fn get_navigator(

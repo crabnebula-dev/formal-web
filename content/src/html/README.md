@@ -369,6 +369,22 @@ to it receives the event. Remaining work: the `disabled` attribute and
 `media` are reflected but not applied, and `rel=preload`, `rel=icon` and the
 other link types fetch nothing.
 
+## Web storage (`storage.rs`)
+
+`localStorage` and `sessionStorage` are in-memory maps held on the
+Document's storage holders: nothing is persisted, nothing is partitioned
+by origin, and a new document starts empty.  Remaining work:
+
+- A local storage bottle map shared by the documents of an origin and
+  persisted by the user agent.
+- Storage events: "broadcast" has no recipient, so no other Window is
+  notified of a change.
+- The bindings do not enforce required argument counts, so `getItem()`
+  without an argument converts `undefined` instead of throwing a
+  `TypeError` (`webstorage/missing_arguments.window.js`).
+- Lone surrogates cannot be stored: values travel as Rust strings
+  (`webstorage/storage_setitem.window.js`).
+
 ## `noscript` content is rendered with scripting enabled
 
 Observed on Element Web's `index.html`: the text inside its `<noscript>`

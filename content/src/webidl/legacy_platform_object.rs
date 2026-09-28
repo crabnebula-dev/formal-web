@@ -31,6 +31,33 @@ pub(crate) trait LegacyPlatformObject:
     /// <https://webidl.spec.whatwg.org/#LegacyUnenumerableNamedProperties>
     const LEGACY_UNENUMERABLE_NAMED_PROPERTIES: bool = false;
 
+    /// <https://webidl.spec.whatwg.org/#dfn-named-property-setter>
+    const HAS_NAMED_PROPERTY_SETTER: bool = false;
+
+    /// <https://webidl.spec.whatwg.org/#dfn-named-property-deleter>
+    const HAS_NAMED_PROPERTY_DELETER: bool = false;
+
+    /// <https://webidl.spec.whatwg.org/#invoke-a-named-property-setter>
+    fn invoke_a_named_property_setter(
+        &self,
+        _name: &str,
+        _value: JsValue,
+        ec: &mut dyn ExecutionContext<Types>,
+    ) -> Completion<(), Types> {
+        Err(ec.new_type_error("the interface has no named property setter"))
+    }
+
+    /// <https://webidl.spec.whatwg.org/#dfn-named-property-deleter>
+    // Note: the method steps of the deleter operation; the return value is
+    // whether the deletion succeeded.
+    fn invoke_a_named_property_deleter(
+        &self,
+        _name: &str,
+        ec: &mut dyn ExecutionContext<Types>,
+    ) -> Completion<bool, Types> {
+        Err(ec.new_type_error("the interface has no named property deleter"))
+    }
+
     /// <https://webidl.spec.whatwg.org/#dfn-supported-property-indices>
     // Note: the supported property indices are always the range from zero up
     // to a count; the count is returned.
@@ -351,7 +378,7 @@ fn legacy_platform_object_get_own_property<T: LegacyPlatformObject>(
             // Step 2.1.10: "Return desc."
             return Ok(Some(PropertyDescriptor {
                 value: Some(value),
-                writable: Some(false),
+                writable: Some(T::HAS_NAMED_PROPERTY_SETTER),
                 get: None,
                 set: None,
                 enumerable: Some(!T::LEGACY_UNENUMERABLE_NAMED_PROPERTIES),
@@ -411,12 +438,24 @@ fn trap_define_property<T: LegacyPlatformObject>(
         let own_key = ec.property_key_from_str(&name);
         if T::LEGACY_OVERRIDE_BUILT_INS || !ec.has_own_property(target.clone(), own_key)? {
             // Step 2.2.1: "If creating is false and O does not implement an interface with a named property setter, then return false."
-            if !creating {
+            if !creating && !T::HAS_NAMED_PROPERTY_SETTER {
                 return Ok(ec.value_from_bool(false));
             }
 
             // Step 2.2.2: "If O implements an interface with a named property setter, then:"
-            // Note: no interface here declares a named property setter.
+            if T::HAS_NAMED_PROPERTY_SETTER {
+                // Step 2.2.2.1: "If the result of calling IsDataDescriptor(Desc) is false, then return false."
+                if !is_data_descriptor(&descriptor) {
+                    return Ok(ec.value_from_bool(false));
+                }
+
+                // Step 2.2.2.2: "Invoke the named property setter on O with P and Desc.[[Value]]."
+                let value = descriptor.value.unwrap_or_else(|| ec.value_undefined());
+                object.invoke_a_named_property_setter(&name, value, ec)?;
+
+                // Step 2.2.2.3: "Return true."
+                return Ok(ec.value_from_bool(true));
+            }
         }
     }
 
@@ -456,12 +495,21 @@ fn trap_delete_property<T: LegacyPlatformObject>(
         && named_property_visibility(&object, &target, &name, ec)?
     {
         // Step 2.1: "If O does not implement an interface with a named property deleter, then return false."
+        if !T::HAS_NAMED_PROPERTY_DELETER {
+            return Ok(ec.value_from_bool(false));
+        }
+
         // Step 2.2: "Let operation be the operation used to declare the named property deleter."
         // Step 2.3: "If operation was defined without an identifier, then:"
         // Step 2.4: "Otherwise, operation was defined with an identifier:"
+        // Step 2.4.1: "Perform the method steps of operation with O as this and « P » as the argument values."
+        // Step 2.4.2: "If operation was declared with a return type of boolean and the steps returned false, then return false."
+        if !object.invoke_a_named_property_deleter(&name, ec)? {
+            return Ok(ec.value_from_bool(false));
+        }
+
         // Step 2.5: "Return true."
-        // Note: no interface here declares a named property deleter.
-        return Ok(ec.value_from_bool(false));
+        return Ok(ec.value_from_bool(true));
     }
 
     // Step 3: "If O has an own property with name P, then:"
@@ -695,9 +743,30 @@ fn trap_set<T: LegacyPlatformObject>(
     let receiver = args.get(3).cloned().unwrap_or_else(|| ec.value_undefined());
 
     // Step 1: "If O and Receiver are the same object, then:"
-    // Step 1.1: "If O implements an interface with an indexed property setter and P is an array index, then:"
-    // Step 1.2: "If O implements an interface with a named property setter and P is a String, then:"
-    // Note: no interface here declares an indexed or named property setter.
+    // Note: the trap's O is the proxy target and the receiver is the proxy
+    // itself; they are the same platform object when the receiver's platform
+    // data is this target's interface.
+    let receiver_is_this_object = <Types as JsTypes>::value_as_object(&receiver)
+        .and_then(|receiver_object| {
+            ec.with_object_any(&receiver_object)
+                .map(|data| data.downcast_ref::<T>().is_some())
+        })
+        .unwrap_or(false);
+    if receiver_is_this_object {
+        // Step 1.1: "If O implements an interface with an indexed property setter and P is an array index, then:"
+        // Note: no interface here declares an indexed property setter.
+        // Step 1.2: "If O implements an interface with a named property setter and P is a String, then:"
+        if T::HAS_NAMED_PROPERTY_SETTER
+            && let Some(name) = string_key(&key, ec)
+        {
+            // Step 1.2.1: "Invoke the named property setter on O with P and V."
+            object.invoke_a_named_property_setter(&name, value, ec)?;
+
+            // Step 1.2.2: "Return true."
+            return Ok(ec.value_from_bool(true));
+        }
+    }
+
     // Step 2: "Let ownDesc be ? LegacyPlatformObjectGetOwnProperty(O, P, true)."
     let own_descriptor = legacy_platform_object_get_own_property(&object, &target, &key, true, ec)?;
 
