@@ -270,10 +270,8 @@ impl HyperlinkElementUtils for HTMLAnchorElement {
 
         // Step 3: "Let url be the result of encoding-parsing a URL given this element's href content attribute's value, relative to this element's node document."
         // Note: The implementation resolves relative URLs against the document creation URL because the document base URL is not yet exposed on the node document's [Document](https://dom.spec.whatwg.org/#interface-document) [platform object](https://webidl.spec.whatwg.org/#dfn-platform-object).
-        let url = document_creation_url.join(&href).ok();
-
         // Step 4: "If url is not failure, then set this element's url to url."
-        url
+        document_creation_url.join(&href).ok()
     }
 
     /// <https://html.spec.whatwg.org/#api-for-a-and-area-elements:update-href>

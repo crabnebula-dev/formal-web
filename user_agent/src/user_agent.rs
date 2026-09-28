@@ -1014,7 +1014,7 @@ pub enum UserAgentCommand {
     /// the event loop from its own state.
     Navigate {
         event_loop_id: Option<EventLoopId>,
-        request: NavigateRequest,
+        request: Box<NavigateRequest>,
     },
     ClickElement {
         traversable_id: NavigableId,
@@ -1197,7 +1197,7 @@ impl UserAgent {
         self.command_sender
             .send(UserAgentCommand::Navigate {
                 event_loop_id: None,
-                request,
+                request: Box::new(request),
             })
             .map_err(|error| format!("failed to send navigate command: {error}"))
     }
@@ -1779,7 +1779,7 @@ impl UserAgentWorker {
                 event_loop_id,
                 request,
             } => {
-                self.handle_navigate(event_loop_id, request);
+                self.handle_navigate(event_loop_id, *request);
             }
             UserAgentCommand::ClickElement {
                 traversable_id,
@@ -3943,7 +3943,7 @@ impl UserAgentWorker {
             }
 
             let traversable_id = self.traversable_id_for_navigable(navigable_id)?;
-            let navigation_id = request.navigation_id.unwrap_or_else(NavigationId::new);
+            let navigation_id = request.navigation_id.unwrap_or_default();
             self.navigate(
                 navigable_id,
                 request.destination_url.clone(),

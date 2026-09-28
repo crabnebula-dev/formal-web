@@ -186,16 +186,15 @@ fn shared_attribute_processing_steps_for_iframe_and_frame_elements(
     // then set url to maybeURL."
     let node = document.get_node(iframe_node_id)?;
     let element = node.element_data()?;
-    if let Some(src) = element.attr(local_name!("src")).map(str::trim) {
-        if !src.is_empty() {
-            if let Ok(url) = creation_url.join(src) {
-                // TODO: Shared step 3: "If the inclusive ancestor navigables of element's
-                // node navigable contains a navigable whose active document's URL equals url
-                // with exclude fragments set to true, then return null."
-                // This needs user-agent-owned navigable ancestry.
-                return Some(url);
-            }
-        }
+    if let Some(src) = element.attr(local_name!("src")).map(str::trim)
+        && !src.is_empty()
+        && let Ok(url) = creation_url.join(src)
+    {
+        // TODO: Shared step 3: "If the inclusive ancestor navigables of element's
+        // node navigable contains a navigable whose active document's URL equals url
+        // with exclude fragments set to true, then return null."
+        // This needs user-agent-owned navigable ancestry.
+        return Some(url);
     }
 
     // TODO: Shared step 4: "If url matches about:blank and initialInsertion is true,
@@ -1016,10 +1015,11 @@ fn process_iframe_attributes(
 
     // Note: If transitioning from cross-origin to same-origin, retire the old traversable
     // so the user agent can clean up the cross-origin child navigable.
-    if let Some(previous_iframe_state) = previous_iframe_state.as_ref() {
-        if previous_iframe_state.cross_origin && !cross_origin {
-            retire_iframe_traversable(process, parent_traversable_id, previous_iframe_state)?;
-        }
+    if let Some(previous_iframe_state) = previous_iframe_state.as_ref()
+        && previous_iframe_state.cross_origin
+        && !cross_origin
+    {
+        retire_iframe_traversable(process, parent_traversable_id, previous_iframe_state)?;
     }
 
     // Step 2.3: "If url matches about:blank and initialInsertion is true:"

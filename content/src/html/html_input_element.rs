@@ -155,5 +155,5 @@ const INPUT_TYPE_KEYWORDS: &[&str] = &[
 fn value_to_string(value: &str) -> String {
     // For type=text (the default), the value sanitization algorithm is the
     // identity — strip newlines per spec step "strip newlines from value".
-    value.replace('\n', "").replace('\r', "")
+    value.replace(['\n', '\r'], "")
 }

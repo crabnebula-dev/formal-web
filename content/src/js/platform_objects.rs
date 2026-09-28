@@ -431,10 +431,9 @@ pub(crate) fn build_path_from_target_js_object(
             ))
         } else if let Some(node) = data.downcast_ref::<Node>() {
             Some((node.node_id, node.document.clone()))
-        } else if let Some(document) = data.downcast_ref::<Document>() {
-            Some((document.node.node_id, document.node.document.clone()))
         } else {
-            None
+            data.downcast_ref::<Document>()
+                .map(|document| (document.node.node_id, document.node.document.clone()))
         }
     });
 

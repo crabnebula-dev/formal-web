@@ -308,12 +308,8 @@ pub fn execute_parser_scripts(
 }
 
 fn parser_script_for_node(document: &BaseDocument, node_id: usize) -> Option<PendingParserScript> {
-    let Some(node) = document.get_node(node_id) else {
-        return None;
-    };
-    let Some(element) = node.element_data() else {
-        return None;
-    };
+    let node = document.get_node(node_id)?;
+    let element = node.element_data()?;
     if let Some(script_type) = element.attr(blitz_dom::local_name!("type")) {
         let script_type = normalized_script_type(script_type);
         if script_type == "module" || !is_classic_javascript_type(&script_type) {

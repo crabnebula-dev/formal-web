@@ -495,7 +495,7 @@ fn set_node_value(
     ec: &mut dyn ExecutionContext<crate::js::Types>,
 ) -> Completion<JsValue, crate::js::Types> {
     let first = args.first();
-    let value = if first.map_or(true, |v| crate::js::Types::value_is_null(v)) {
+    let value = if first.is_none_or(crate::js::Types::value_is_null) {
         None
     } else {
         Some(ec.to_rust_string(first.unwrap().clone())?)
@@ -514,7 +514,7 @@ fn set_text_content(
     ec: &mut dyn ExecutionContext<crate::js::Types>,
 ) -> Completion<JsValue, crate::js::Types> {
     let first = args.first();
-    let text = if first.map_or(true, |v| crate::js::Types::value_is_null(v)) {
+    let text = if first.is_none_or(crate::js::Types::value_is_null) {
         None
     } else {
         Some(ec.to_rust_string(first.unwrap().clone())?)
@@ -698,6 +698,6 @@ fn dom_exception_error(
     ec: &mut dyn ExecutionContext<crate::js::Types>,
 ) -> JsValue {
     create_interface_instance::<crate::js::Types, DOMException>(exception, ec)
-        .map(|obj| crate::js::Types::value_from_object(obj))
+        .map(crate::js::Types::value_from_object)
         .unwrap_or_else(|err| err)
 }

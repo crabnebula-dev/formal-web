@@ -36,7 +36,8 @@ use crate::html::workers::dedicated_worker_agent::{
     WorkerChannelMessage, WorkerEvent, WorkerHandle, WorkerInbound, fire_worker_posted_message,
 };
 use crate::html::{
-    EnvironmentSettingsObject, JsHtmlParserProvider, MessageEvent, PendingParserScript, Window,
+    EnvironmentSettingsObject, JsHtmlParserProvider, MessageEvent, NewDocumentRegistry,
+    PendingParserScript, VideoPaintRegistry, Window,
     attach_same_origin_child_document_for_traversable, execute_parser_scripts,
     execute_the_script_element, linked_stylesheet_fetched, mark_parser_scripts_started,
     parse_html_into_document, run_dom_post_connection_steps_for_document,
@@ -62,6 +63,14 @@ use blitz_traits::shell::{ClipboardError, ColorScheme, ShellProvider, Viewport};
 use data_url::DataUrl;
 use html5ever::local_name;
 use js_engine::{EcmascriptHost, ExecutionContext, JsTypes};
+
+/// A document after initialise the document object: the document, its
+/// settings object and its needs-paint flag.
+type InitialisedDocument = (
+    Rc<RefCell<BaseDocument>>,
+    EnvironmentSettingsObject,
+    Arc<AtomicBool>,
+);
 
 use crate::fetch::{FetchResponseData, process_response, request_header_list};
 use ipc_messages::content::Command::{
@@ -534,14 +543,13 @@ pub(crate) struct ContentProcess {
     /// (window.open).  ContentProcess holds one Rc, and before running JS it
     /// sets a clone on the source document's GlobalScope so that
     /// `register_new_traversable_document` can insert directly into this map.
-    new_document_registry:
-        Rc<RefCell<HashMap<DocumentId, (EnvironmentSettingsObject, Rc<RefCell<BaseDocument>>)>>>,
+    new_document_registry: NewDocumentRegistry,
 
     /// Consolidated wasm content-process state (worker + pending tracking).
     #[cfg(all(boa_backend, feature = "wasm"))]
     wasm: crate::wasm::ContentWasmState,
 
-    video_paint_registry: Rc<RefCell<HashMap<(DocumentId, usize), VideoPaintId>>>,
+    video_paint_registry: VideoPaintRegistry,
     /// Shared registry mapping (document_id, node_id) → CanvasId, set on each
     /// realm's GlobalScope so `transferControlToOffscreen` can register canvas
     /// ids and `build_frame_composition_metadata` can read them back.
@@ -1105,10 +1113,10 @@ impl ContentProcess {
             .documents
             .get(&document_id)
             .map(|document| document.traversable_id);
-        if let Some(traversable_id) = load_traversable_id {
-            if let Err(error) = self.set_up_new_document_registry(traversable_id) {
-                warn!("failed to set up new document registry: {error}");
-            }
+        if let Some(traversable_id) = load_traversable_id
+            && let Err(error) = self.set_up_new_document_registry(traversable_id)
+        {
+            warn!("failed to set up new document registry: {error}");
         }
 
         let (ready_to_finish, traversable_id, resources_ready, scripts_ready) = {
@@ -1256,7 +1264,7 @@ impl ContentProcess {
         user_scripts: Vec<UserScript>,
     ) -> Result<(), String> {
         let viewport_state = self.document_viewport_state(traversable_id);
-        let frame_id = frame_id.unwrap_or_else(FrameId::new);
+        let frame_id = frame_id.unwrap_or_default();
         let needs_paint = Arc::new(AtomicBool::new(false));
         let document = Rc::new(RefCell::new(BaseDocument::new(self.document_config(
             traversable_id,
@@ -1359,14 +1367,7 @@ impl ContentProcess {
         traversable_id: NavigableId,
         document_id: DocumentId,
         final_url: &str,
-    ) -> Result<
-        (
-            Rc<RefCell<BaseDocument>>,
-            EnvironmentSettingsObject,
-            Arc<AtomicBool>,
-        ),
-        String,
-    > {
+    ) -> Result<InitialisedDocument, String> {
         // Step 1: "Let browsingContext be the result of obtaining a browsing context to use for
         // a navigation response given navigationParams."
         // Note: Ran in the user agent: `UserAgent::initialise_the_document_object` resolved
@@ -1555,7 +1556,7 @@ impl ContentProcess {
             body,
         } = response;
         let viewport_state = self.document_viewport_state(traversable_id);
-        let frame_id = frame_id.unwrap_or_else(FrameId::new);
+        let frame_id = frame_id.unwrap_or_default();
         // This block continues <https://html.spec.whatwg.org/#navigate-html>.
         // Step 1: "Let document be the result of creating and initializing a `Document` object
         // given `html`, `text/html`, and navigationParams."
@@ -2062,7 +2063,7 @@ impl ContentProcess {
                 .documents
                 .get(&document_id)
                 .map(|doc| doc.traversable_id)
-                .unwrap_or(NavigableId::new());
+                .unwrap_or_default();
 
             // Set up shared registry so window.open can register new documents
             // (same as click_element does).
@@ -2822,10 +2823,10 @@ impl ContentProcess {
         // Collect video node ids by scanning the document tree for <video> elements.
         let mut video_node_ids = Vec::new();
         document.visit(|node_id, node| {
-            if let Some(element_data) = node.element_data() {
-                if element_data.name.local == local_name!("video") {
-                    video_node_ids.push(node_id);
-                }
+            if let Some(element_data) = node.element_data()
+                && element_data.name.local == local_name!("video")
+            {
+                video_node_ids.push(node_id);
             }
         });
 
@@ -2926,7 +2927,7 @@ impl ContentProcess {
 
             let paint_id = video_paint_registry
                 .entry((document_id, video_node_id))
-                .or_insert_with(VideoPaintId::new);
+                .or_default();
 
             embed_sites.push(EmbedSite::Video(VideoEmbedData {
                 paint_id: *paint_id,
@@ -3325,19 +3326,18 @@ impl ContentProcess {
                 // to clean up.
                 if let WorkerOwner::Document(document_id) = handle.owner
                     && self.documents.contains_key(&document_id)
+                    && let Some(document) = self.documents.get_mut(&document_id)
                 {
-                    if let Some(document) = self.documents.get_mut(&document_id) {
-                        with_global_scope(document.settings.ec(), |global_scope, ec| {
-                            global_scope.discard_owned_worker(worker_id, ec);
-                            Ok(())
-                        })
-                        .map_err(|error| {
-                            format!(
-                                "failed to discard closed worker {worker_id}: {}",
-                                error.display()
-                            )
-                        })?;
-                    }
+                    with_global_scope(document.settings.ec(), |global_scope, ec| {
+                        global_scope.discard_owned_worker(worker_id, ec);
+                        Ok(())
+                    })
+                    .map_err(|error| {
+                        format!(
+                            "failed to discard closed worker {worker_id}: {}",
+                            error.display()
+                        )
+                    })?;
                 }
                 Ok(())
             }

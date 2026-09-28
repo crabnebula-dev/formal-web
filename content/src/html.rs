@@ -57,6 +57,7 @@ pub use environment_settings_object::EnvironmentSettingsObject;
 pub use global_scope::GlobalScope;
 pub use global_scope::GlobalScopeKind;
 pub(crate) use global_scope::TimerHandler;
+pub(crate) use global_scope::{BrowsingContextWindow, NewDocumentRegistry, VideoPaintRegistry};
 
 pub use html_anchor_element::HTMLAnchorElement;
 pub(crate) use html_dom_tree::{
@@ -155,15 +156,7 @@ pub(crate) fn create_a_new_browsing_context_and_document(
     parent_engine: Option<&mut Engine>,
     creator_origin: Option<environment_settings_object::Origin>,
     wiring: RealmWiring,
-) -> Result<
-    (
-        JsObject,
-        Window,
-        EnvironmentSettingsObject,
-        Rc<RefCell<BaseDocument>>,
-    ),
-    String,
-> {
+) -> Result<BrowsingContextWindow, String> {
     // Step 1: Let browsingContext be a new browsing context.
     // Step 2: Let unsafeContextCreationTime be the unsafe shared current time.
     // Step 3: Let creatorOrigin be null.

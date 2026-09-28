@@ -45,6 +45,24 @@ type JsObject = <Types as JsTypes>::JsObject;
 /// GlobalScope and ContentProcess.
 type CanvasRegistry = Rc<RefCell<HashMap<(DocumentId, usize), CanvasId>>>;
 
+/// The shared registry of traversable documents created during JS execution
+/// (window.open), held by both GlobalScope and ContentProcess.
+pub(crate) type NewDocumentRegistry =
+    Rc<RefCell<HashMap<DocumentId, (EnvironmentSettingsObject, Rc<RefCell<BaseDocument>>)>>>;
+
+/// The shared (document_id, node_id) → VideoPaintId registry held by both
+/// GlobalScope and ContentProcess.
+pub(crate) type VideoPaintRegistry = Rc<RefCell<HashMap<(DocumentId, usize), VideoPaintId>>>;
+
+/// A browsing context's window: its JS object, the Window, its settings
+/// object and its document.
+pub(crate) type BrowsingContextWindow = (
+    JsObject,
+    Window,
+    EnvironmentSettingsObject,
+    Rc<RefCell<BaseDocument>>,
+);
+
 fn timer_debug_enabled() -> bool {
     std::env::var_os("FORMAL_WEB_DEBUG_TIMERS").is_some()
 }
@@ -331,17 +349,7 @@ pub struct GlobalScope {
     /// and ContentProcess (to retrieve) share the same `Rc`, so no separate
     /// flush step is needed.
     #[ignore_trace]
-    new_document_registry: Rc<
-        RefCell<
-            Option<
-                Rc<
-                    RefCell<
-                        HashMap<DocumentId, (EnvironmentSettingsObject, Rc<RefCell<BaseDocument>>)>,
-                    >,
-                >,
-            >,
-        >,
-    >,
+    new_document_registry: Rc<RefCell<Option<NewDocumentRegistry>>>,
 
     /// Shared registry mapping (document_id, node_id) → VideoPaintId.
     /// Set by `ContentProcess` during document creation so that both
@@ -349,8 +357,7 @@ pub struct GlobalScope {
     /// `ContentProcess::build_frame_composition_metadata` (to read) share
     /// the same `Rc`.
     #[ignore_trace]
-    video_paint_registry:
-        Rc<RefCell<Option<Rc<RefCell<HashMap<(DocumentId, usize), VideoPaintId>>>>>>,
+    video_paint_registry: Rc<RefCell<Option<VideoPaintRegistry>>>,
 
     /// Shared registry mapping (document_id, node_id) → CanvasId. Set by
     /// `ContentProcess` during document creation so that both
@@ -1584,15 +1591,7 @@ impl GlobalScope {
         parent_engine: Option<&mut Engine>,
         new_traversable_id: NavigableId,
         new_document_id: DocumentId,
-    ) -> Result<
-        (
-            JsObject,
-            Window,
-            super::environment_settings_object::EnvironmentSettingsObject,
-            Rc<RefCell<BaseDocument>>,
-        ),
-        String,
-    > {
+    ) -> Result<BrowsingContextWindow, String> {
         let event_sender = self
             .event_sender()
             .ok_or_else(|| String::from("GlobalScope has no event sender"))?;
@@ -1635,12 +1634,7 @@ impl GlobalScope {
     /// Set the shared new-document registry that both GlobalScope and
     /// ContentProcess access.  ContentProcess sets this before running JS
     /// that may trigger `the_rules_for_choosing_a_navigable`.
-    pub(crate) fn set_new_document_registry(
-        &self,
-        registry: Rc<
-            RefCell<HashMap<DocumentId, (EnvironmentSettingsObject, Rc<RefCell<BaseDocument>>)>>,
-        >,
-    ) {
+    pub(crate) fn set_new_document_registry(&self, registry: NewDocumentRegistry) {
         *self.new_document_registry.borrow_mut() = Some(registry);
     }
 
@@ -1724,10 +1718,7 @@ impl GlobalScope {
     /// execution that might trigger `window.open`.
     /// Note: Only used on JSC backend (Boa creates fresh contexts).
     #[allow(dead_code)]
-    pub(crate) fn set_video_paint_registry(
-        &self,
-        registry: Rc<RefCell<HashMap<(DocumentId, usize), VideoPaintId>>>,
-    ) {
+    pub(crate) fn set_video_paint_registry(&self, registry: VideoPaintRegistry) {
         *self.video_paint_registry.borrow_mut() = Some(registry);
     }
 

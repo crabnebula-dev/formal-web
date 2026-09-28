@@ -316,10 +316,8 @@ impl Document {
             .unwrap_or_default();
 
         // Step 3: "Strip and collapse ASCII whitespace in value."
-        let value = strip_and_collapse_ascii_whitespace(&value);
-
         // Step 4: "Return value."
-        value
+        strip_and_collapse_ascii_whitespace(&value)
     }
 
     /// <https://html.spec.whatwg.org/#document.title>

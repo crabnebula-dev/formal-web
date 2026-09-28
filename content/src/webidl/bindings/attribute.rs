@@ -3,15 +3,14 @@ use js_engine::{
     Completion, ExecutionContext, JsEngine, JsTypes, JsTypesWithRealm, PropertyDescriptor,
 };
 
+use super::BindingFn;
+
 /// Describes a single attribute on an interface.
 /// https://webidl.spec.whatwg.org/#dfn-attribute
 pub(crate) struct AttributeDef<T: JsTypes> {
     pub id: &'static str,
-    pub getter:
-        fn(&T::JsValue, &[T::JsValue], &mut dyn ExecutionContext<T>) -> Completion<T::JsValue, T>,
-    pub setter: Option<
-        fn(&T::JsValue, &[T::JsValue], &mut dyn ExecutionContext<T>) -> Completion<T::JsValue, T>,
-    >,
+    pub getter: BindingFn<T>,
+    pub setter: Option<BindingFn<T>>,
     pub static_: bool,
     pub unforgeable: bool,
     pub promise_type: bool,
@@ -97,11 +96,7 @@ where
         #[gc_struct]
         struct AttrCapture<T: JsTypes> {
             #[ignore_trace]
-            func: fn(
-                &T::JsValue,
-                &[T::JsValue],
-                &mut dyn ExecutionContext<T>,
-            ) -> Completion<T::JsValue, T>,
+            func: BindingFn<T>,
         }
 
         fn attr_fn<T: JsTypes>(

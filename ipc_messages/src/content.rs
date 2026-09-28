@@ -535,10 +535,10 @@ impl FontTransportReceiver {
         font_data: &HashMap<usize, Vec<u8>>,
     ) {
         for font in registered_fonts {
-            if let Entry::Vacant(entry) = self.fonts.entry(font.id) {
-                if let Some(data) = font_data.get(&font.data_shmem_key) {
-                    entry.insert(font.into_font_data_from_bytes(data.clone()));
-                }
+            if let Entry::Vacant(entry) = self.fonts.entry(font.id)
+                && let Some(data) = font_data.get(&font.data_shmem_key)
+            {
+                entry.insert(font.into_font_data_from_bytes(data.clone()));
             }
         }
     }

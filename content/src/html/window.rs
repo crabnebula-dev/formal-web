@@ -361,17 +361,17 @@ pub(crate) fn window_computed_style_properties_for_element(
     let mut obj = Some(elt);
 
     // Step 3: "If pseudoElt is provided, is not the empty string, and starts with a colon..."
-    if let Some(pseudo_elt) = pseudo_elt.map(str::trim).filter(|value| !value.is_empty()) {
-        if pseudo_elt.starts_with(':') {
-            // Step 3.1: Parse pseudoElt as a <pseudo-element-selector>.
-            // Step 3.2 / 3.3: Map invalid, ::slotted(), ::part(), or supported pseudo-element
-            // requests to the corresponding pseudo-element object.
-            //
-            // Note: The implementation does not yet expose pseudo-element platform objects, so any
-            // pseudo-element request leaves `obj` null and therefore produces an empty declaration
-            // list below.
-            obj = None;
-        }
+    if let Some(pseudo_elt) = pseudo_elt.map(str::trim).filter(|value| !value.is_empty())
+        && pseudo_elt.starts_with(':')
+    {
+        // Step 3.1: Parse pseudoElt as a <pseudo-element-selector>.
+        // Step 3.2 / 3.3: Map invalid, ::slotted(), ::part(), or supported pseudo-element
+        // requests to the corresponding pseudo-element object.
+        //
+        // Note: The implementation does not yet expose pseudo-element platform objects, so any
+        // pseudo-element request leaves `obj` null and therefore produces an empty declaration
+        // list below.
+        obj = None;
     }
 
     // Step 4: "Let decls be an empty list of CSS declarations."
@@ -418,18 +418,8 @@ pub(crate) fn window_post_message_steps(
     // there.  The message therefore carries only the serialized data.
 
     // Step 2: Let incumbentSettings be the incumbent settings object.
-    let (source_navigable_id, source_origin, event_sender) = with_global_scope(
-        ec,
-        |global_scope,
-         _ec|
-         -> Completion<
-            (
-                Option<NavigableId>,
-                Option<String>,
-                Option<IpcSender<ContentEvent>>,
-            ),
-            crate::js::Types,
-        > {
+    let (source_navigable_id, source_origin, event_sender) =
+        with_global_scope(ec, |global_scope, _ec| {
             Ok((
                 global_scope.source_navigable_id(),
                 global_scope
@@ -437,8 +427,7 @@ pub(crate) fn window_post_message_steps(
                     .map(|url| url.origin().unicode_serialization()),
                 global_scope.event_sender(),
             ))
-        },
-    )?;
+        })?;
     let Some(source_navigable_id) = source_navigable_id else {
         return Err(ec.new_type_error("postMessage: no source navigable"));
     };

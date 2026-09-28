@@ -377,8 +377,8 @@ fn script_block_type_string(
     language_attribute: Option<&str>,
 ) -> String {
     match (type_attribute, language_attribute) {
-        (Some(type_attribute), _) if type_attribute.is_empty() => String::from("text/javascript"),
-        (None, Some(language)) if language.is_empty() => String::from("text/javascript"),
+        (Some(""), _) => String::from("text/javascript"),
+        (None, Some("")) => String::from("text/javascript"),
         (None, None) => String::from("text/javascript"),
         (Some(type_attribute), _) => type_attribute.trim_matches(ASCII_WHITESPACE).to_owned(),
         (None, Some(language)) => format!("text/{language}"),

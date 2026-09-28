@@ -21,3 +21,15 @@ pub(crate) use registry::{
     wire_constructor_prototype as wire_registry_constructor_prototype,
     wire_prototype as wire_registry_prototype,
 };
+
+use js_engine::{Completion, ExecutionContext, JsTypes};
+
+/// A binding function: receives the `this` value, the arguments and the
+/// execution context.  Binding functions use `T::value_as_object` and
+/// `ec.with_platform_data` for upcast/downcast, avoiding engine-specific
+/// dependencies.
+pub(crate) type BindingFn<T> = fn(
+    &<T as JsTypes>::JsValue,
+    &[<T as JsTypes>::JsValue],
+    &mut dyn ExecutionContext<T>,
+) -> Completion<<T as JsTypes>::JsValue, T>;
