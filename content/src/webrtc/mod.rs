@@ -12,16 +12,22 @@ pub(crate) mod events;
 pub(crate) mod rtc_data_channel;
 pub(crate) mod rtc_ice_candidate;
 pub(crate) mod rtc_peer_connection;
+pub(crate) mod rtc_peer_connection_media;
+pub(crate) mod rtc_rtp_transceiver;
 pub(crate) mod rtc_session_description;
+pub(crate) mod rtc_stats_report;
 pub(crate) mod sdp;
 
 use ipc_messages::webrtc::Message;
 
-pub(crate) use events::{RTCDataChannelEvent, RTCPeerConnectionIceEvent};
+pub(crate) use events::{RTCDataChannelEvent, RTCPeerConnectionIceEvent, RTCTrackEvent};
 pub(crate) use rtc_data_channel::RTCDataChannel;
 pub(crate) use rtc_ice_candidate::RTCIceCandidate;
 pub(crate) use rtc_peer_connection::RTCPeerConnection;
+pub(crate) use rtc_peer_connection_media::{RTCRtpTransceiverInit, TrackOrKind};
+pub(crate) use rtc_rtp_transceiver::{RTCRtpReceiver, RTCRtpSender, RTCRtpTransceiver};
 pub(crate) use rtc_session_description::RTCSessionDescription;
+pub(crate) use rtc_stats_report::RTCStatsReport;
 
 /// What a WebRTC task does for one peer connection.
 pub(crate) enum WebRtcTask {

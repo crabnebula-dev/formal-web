@@ -5,6 +5,7 @@
 pub(crate) use qrtc::native::NativeEngine as Backend;
 
 pub(crate) use qrtc::{
-    DataChannelInfo, DataChannelInit, Error, EventSink, IceCandidate, IceServer, Payload, Peer,
-    PeerEngine, PeerEvent, RtcConfiguration, SdpType, SessionDescription,
+    DataChannelInfo, DataChannelInit, Direction, Error, EventSink, IceCandidate, IceServer,
+    Payload, Peer, PeerEngine, PeerEvent, RtcConfiguration, SdpType, SessionDescription, TrackKind,
+    TransceiverSpec, TransceiverState,
 };

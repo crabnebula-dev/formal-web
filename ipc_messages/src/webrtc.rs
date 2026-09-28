@@ -1,9 +1,10 @@
-//! Messages between content processes and the WebRTC extension process.
+//! Messages between content processes and the WebRTC engine, which runs
+//! inside the net process.
 //!
-//! The WebRTC extension (`formal-web-webrtc`) owns the network side of every
-//! RTCPeerConnection: ICE, DTLS, SCTP. Content sends it `Request`s directly
-//! (the sender arrives in `ContentBootstrap`), and the extension answers on
-//! the content process's own command channel with `Command::WebRtc`.
+//! The engine owns the network side of every RTCPeerConnection: ICE, DTLS,
+//! SCTP. Content sends it `Request`s wrapped in `network::Request::WebRtc`,
+//! and it answers on the content process's own command channel with
+//! `Command::WebRtc`.
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -97,6 +98,75 @@ pub struct DataChannelInit {
     pub id: Option<u16>,
 }
 
+/// <https://w3c.github.io/webrtc-pc/#dom-rtcrtptransceiverdirection>
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TransceiverDirection {
+    Sendrecv,
+    Sendonly,
+    Recvonly,
+    Inactive,
+    Stopped,
+}
+
+/// <https://w3c.github.io/mediacapture-main/#dom-mediastreamtrack-kind>
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TrackKind {
+    Audio,
+    Video,
+}
+
+/// Identifies one transceiver within its peer connection. Content assigns
+/// the ids of the transceivers it creates; the WebRTC process assigns the
+/// ids of transceivers a remote offer creates, at or above
+/// `TransceiverId::REMOTE`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct TransceiverId(pub u32);
+
+impl TransceiverId {
+    /// The first id of a transceiver the remote description created.
+    pub const REMOTE: u32 = 0x8000_0000;
+}
+
+/// What content knows about one of its transceivers; sent whole on every
+/// change, the WebRTC process treats it as an upsert.
+/// <https://w3c.github.io/webrtc-pc/#dom-rtcrtptransceiver>
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransceiverSpec {
+    pub id: TransceiverId,
+    pub kind: TrackKind,
+    pub direction: TransceiverDirection,
+    /// <https://w3c.github.io/webrtc-pc/#dfn-associated-medias-streams>
+    pub stream_ids: Vec<String>,
+    /// The sender's track id when the transceiver was created (the msid).
+    pub sender_track_id: String,
+    /// Created by addTrack(), so eligible for association with a remote
+    /// m= section.
+    pub from_add_track: bool,
+    pub stopped: bool,
+}
+
+/// The negotiation facts of one transceiver after a description was applied,
+/// for the transceiver steps of set a session description (steps 4.7.10 to
+/// 4.7.16).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransceiverState {
+    pub id: TransceiverId,
+    pub kind: TrackKind,
+    /// <https://w3c.github.io/webrtc-pc/#dom-rtcrtptransceiver-mid>
+    pub mid: Option<String>,
+    pub direction: TransceiverDirection,
+    /// <https://w3c.github.io/webrtc-pc/#dom-rtcrtptransceiver-currentdirection>
+    pub current_direction: Option<TransceiverDirection>,
+    /// The direction attribute of the remote m= section, from the remote
+    /// peer's perspective.
+    pub remote_direction: Option<TransceiverDirection>,
+    pub remote_stream_ids: Vec<String>,
+    pub remote_track_id: Option<String>,
+    pub created_by_remote: bool,
+    pub sender_track_id: String,
+    pub stopped: bool,
+}
+
 /// A data channel's properties as the WebRTC process knows them.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DataChannelProperties {
@@ -117,8 +187,8 @@ pub enum Payload {
     Binary(Vec<u8>),
 }
 
-/// Content to WebRTC process.
-#[derive(Debug, Serialize, Deserialize)]
+/// Content to the WebRTC engine.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Request {
     /// Create the peer connection's ICE agent and transports (steps 4 to 12
     /// of the RTCPeerConnection constructor run in the WebRTC process).
@@ -184,22 +254,40 @@ pub enum Request {
         peer: PeerConnectionId,
         channel: DataChannelHandle,
     },
+    /// Create or update a transceiver (addTrack, addTransceiver, a direction
+    /// change, stop) so the next offer or answer negotiates it.
+    UpsertTransceiver {
+        peer: PeerConnectionId,
+        spec: TransceiverSpec,
+    },
+    /// <https://w3c.github.io/webrtc-pc/#dom-rtcpeerconnection-getstats>
+    GetStats {
+        peer: PeerConnectionId,
+        operation: OperationId,
+    },
+    /// Captured 48 kHz mono PCM for an audio sender: 20 ms from the
+    /// graphics process's capture device, for the engine to encode
+    /// (`Peer::push_pcm`).
+    PushPcm {
+        peer: PeerConnectionId,
+        transceiver: TransceiverId,
+        samples: Vec<i16>,
+    },
     Close {
         peer: PeerConnectionId,
     },
     Shutdown,
 }
 
-/// The WebRTC process has nothing to tell the user agent; its bootstrap
-/// connection still needs a message type.
-#[derive(Debug, Serialize, Deserialize)]
-pub enum Response {}
-
 /// The outcome of one operation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum OperationResult {
     Description(SessionDescription),
     Done,
+    /// A description was applied: the state of every transceiver.
+    Negotiated(Vec<TransceiverState>),
+    /// The stats report as JSON: an object per stats entry, keyed by id.
+    Stats(String),
     /// A DOMException name and message.
     Error {
         name: String,

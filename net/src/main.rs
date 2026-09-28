@@ -77,6 +77,8 @@ pub fn run_net_process_with_server(
     let mut pending: HashMap<Uuid, ResponseRecipient> = HashMap::new();
     let mut net_backend = Backend::new();
     let mut web_sockets = WebSocketConnections::default();
+    #[cfg(feature = "webrtc")]
+    let mut webrtc_engine = webrtc::WebRtcEngine::new()?;
 
     loop {
         crossbeam_channel::select! {
@@ -138,6 +140,18 @@ pub fn run_net_process_with_server(
                                 }
                             }
                             Request::WebSocket(request) => web_sockets.handle(request),
+                            #[cfg(feature = "webrtc")]
+                            Request::WebRtc(request) => webrtc_engine.handle(request),
+                            #[cfg(not(feature = "webrtc"))]
+                            Request::WebRtc(_) => {
+                                log::warn!("[net] WebRTC request dropped: built without the webrtc feature");
+                            }
+                            #[cfg(feature = "webrtc")]
+                            Request::SetGraphicsSender(sender) => {
+                                webrtc_engine.set_graphics_sender(sender);
+                            }
+                            #[cfg(not(feature = "webrtc"))]
+                            Request::SetGraphicsSender(_) => {}
                             Request::Shutdown => break,
                         }
                     }

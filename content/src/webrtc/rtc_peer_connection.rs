@@ -2,12 +2,14 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use ipc_messages::content::DocumentId;
+use ipc_messages::network::Request as NetworkRequest;
 use ipc_messages::webrtc::{
     Configuration, DataChannelHandle, IceServer, Message, OperationId, OperationResult,
     PeerConnectionId, PeerEvent, Request, SessionDescription,
 };
 use js_engine::gc::{GcCell, gc_cell_new};
 use js_engine::gc_struct;
+use js_engine::records::PromiseResolvers;
 use js_engine::{Completion, ExecutionContext, JsTypes};
 
 use crate::dom::event::{EventTarget, EventTargetAccess};
@@ -22,11 +24,13 @@ use super::events::{
 };
 use super::rtc_data_channel::{RTCDataChannel, RTCDataChannelState};
 use super::rtc_ice_candidate::{RTCIceCandidate, RTCIceCandidateInit};
+use super::rtc_rtp_transceiver::RTCRtpTransceiver;
 use super::rtc_session_description::{
     RTCSdpType, RTCSessionDescription, RTCSessionDescriptionInit, description_init_object,
 };
 use super::sdp;
 use crate::dom::fire_event_using;
+use crate::mediacapture_streams::MediaStream;
 
 type JsObject = <Types as JsTypes>::JsObject;
 type JsValue = <Types as JsTypes>::JsValue;
@@ -104,9 +108,9 @@ pub(crate) struct RTCLocalSessionDescriptionInit {
 
 /// The internal slots of an RTCPeerConnection, shared by every clone.
 #[derive(Debug)]
-struct PeerConnectionSlots {
+pub(super) struct PeerConnectionSlots {
     /// <https://w3c.github.io/webrtc-pc/#dfn-documentorigin>
-    document_origin: String,
+    pub(super) document_origin: String,
     /// The document the connection belongs to, for the tasks it queues.
     document_id: Option<DocumentId>,
     /// <https://w3c.github.io/webrtc-pc/#dfn-configuration>
@@ -140,8 +144,18 @@ struct PeerConnectionSlots {
     current_remote: Option<RTCSessionDescriptionInit>,
     /// Whether any RTCDataChannel was created on the connection.
     created_data_channel: bool,
-    next_operation: u64,
+    pub(super) next_operation: u64,
     next_channel: u32,
+    /// The id the next transceiver content creates takes.
+    pub(super) next_transceiver: u32,
+}
+
+/// One getStats() call waiting for the WebRTC process's report.
+#[gc_struct]
+pub(super) struct StatsRequest {
+    #[ignore_trace]
+    pub(super) operation: OperationId,
+    pub(super) resolvers: PromiseResolvers<Types>,
 }
 
 /// What one chained operation does.
@@ -209,7 +223,7 @@ pub(crate) struct RTCPeerConnection {
     pub(crate) id: PeerConnectionId,
 
     #[ignore_trace]
-    slots: Rc<RefCell<PeerConnectionSlots>>,
+    pub(super) slots: Rc<RefCell<PeerConnectionSlots>>,
 
     /// <https://w3c.github.io/webrtc-pc/#dfn-operations>
     operations: GcCell<Vec<ChainedOperation>>,
@@ -222,6 +236,17 @@ pub(crate) struct RTCPeerConnection {
     /// channels that already left [[DataChannels]] (the closing procedure's
     /// step 3) until their close event.
     channels: GcCell<Vec<RTCDataChannel>>,
+
+    /// <https://w3c.github.io/webrtc-pc/#dfn-set-of-transceivers>
+    pub(super) transceivers: GcCell<Vec<RTCRtpTransceiver>>,
+
+    /// The MediaStream objects the remote descriptions named, by id
+    /// (set a session description step 4.7.15.3.1).
+    pub(super) remote_streams: GcCell<Vec<MediaStream>>,
+
+    /// The getStats() calls whose report the WebRTC process has not yet
+    /// delivered.
+    pub(super) stats_requests: GcCell<Vec<StatsRequest>>,
 
     /// The RTCSessionDescription objects of [[PendingLocalDescription]],
     /// [[CurrentLocalDescription]], [[PendingRemoteDescription]] and
@@ -238,20 +263,20 @@ impl EventTargetAccess for RTCPeerConnection {
     }
 }
 
-fn webrtc_sender(ec: &mut dyn ExecutionContext<Types>) -> Option<ipc::IpcSender<Request>> {
-    with_global_scope(ec, |global_scope, _ec| Ok(global_scope.webrtc_sender()))
-        .ok()
-        .flatten()
-}
-
-fn send_request(request: Request, ec: &mut dyn ExecutionContext<Types>) {
-    match webrtc_sender(ec) {
+/// Send a request to the WebRTC engine in the net process.
+pub(super) fn send_request(request: Request, ec: &mut dyn ExecutionContext<Types>) {
+    let sender = with_global_scope(ec, |global_scope, _ec| {
+        Ok(global_scope.network_extension_sender())
+    })
+    .ok()
+    .flatten();
+    match sender {
         Some(sender) => {
-            if let Err(error) = sender.send(request) {
+            if let Err(error) = sender.send(NetworkRequest::WebRtc(request)) {
                 log::error!("[webrtc] request: {error}");
             }
         }
-        None => log::error!("[webrtc] no WebRTC process for this realm"),
+        None => log::error!("[webrtc] no net process for this realm"),
     }
 }
 
@@ -375,7 +400,11 @@ impl RTCPeerConnection {
                 created_data_channel: false,
                 next_operation: 0,
                 next_channel: 0,
+                next_transceiver: 0,
             })),
+            transceivers: gc_cell_new(Vec::new(), ec),
+            remote_streams: gc_cell_new(Vec::new(), ec),
+            stats_requests: gc_cell_new(Vec::new(), ec),
             // Step 14: Let connection have an [[Operations]] internal slot,
             //          representing an operations chain, initialized to an
             //          empty list.
@@ -848,7 +877,11 @@ impl RTCPeerConnection {
         // Step 4: Let transceivers be the result of executing the
         //         CollectTransceivers algorithm. For every RTCRtpTransceiver
         //         transceiver in transceivers, run the following steps:
-        // Note: Transceivers are not implemented.
+        // Step 4.1: If transceiver.[[Stopped]] is true, abort these sub
+        //           steps.
+        // Step 4.2: Stop the RTCRtpTransceiver with transceiver and disappear
+        //           set to true.
+        self.stop_transceivers_on_close(ec);
         // Step 5: Set the [[ReadyState]] slot of each of connection's
         //         RTCDataChannels to "closed".
         let channels = self.data_channels.borrow(ec).clone();
@@ -1461,6 +1494,10 @@ impl RTCPeerConnection {
             WebRtcTask::UpdateNegotiationNeededFlag => {
                 self.negotiation_needed_task(time_millis, ec)
             }
+            WebRtcTask::Ipc(Message::Completed {
+                operation,
+                result: OperationResult::Stats(report),
+            }) => self.stats_completed(operation, &report, ec),
             WebRtcTask::Ipc(Message::Completed { operation, result }) => {
                 self.operation_completed(operation, result, time_millis, ec)
             }
@@ -1539,7 +1576,14 @@ impl RTCPeerConnection {
                     }
                 }
             }
-            (InFlight::SetLocal | InFlight::SetRemote, OperationResult::Done) => {
+            (
+                InFlight::SetLocal | InFlight::SetRemote,
+                result @ (OperationResult::Done | OperationResult::Negotiated(_)),
+            ) => {
+                let states = match result {
+                    OperationResult::Negotiated(states) => states,
+                    _ => Vec::new(),
+                };
                 let remote = in_flight == InFlight::SetRemote;
                 let description = match (&steps, remote) {
                     (
@@ -1577,6 +1621,11 @@ impl RTCPeerConnection {
                 };
                 let applied =
                     self.set_description_applied(&description, remote, time_millis, ec)?;
+                // Steps 4.7.10 to 4.7.16: the transceivers the description
+                // negotiated, and the track events for remote media.
+                if applied {
+                    self.apply_transceiver_states(states, remote, time_millis, ec)?;
+                }
                 match (applied, continue_with_remote) {
                     // setRemoteDescription step 3.1.2: after the rollback,
                     // set the remote session description.
@@ -1978,7 +2027,7 @@ impl RTCPeerConnection {
     // ── Negotiation-needed ─────────────────────────────────────────────
 
     /// <https://w3c.github.io/webrtc-pc/#dfn-update-the-negotiation-needed-flag>
-    fn update_the_negotiation_needed_flag(&self, ec: &mut dyn ExecutionContext<Types>) {
+    pub(super) fn update_the_negotiation_needed_flag(&self, ec: &mut dyn ExecutionContext<Types>) {
         // Step 1: If the length of connection.[[Operations]] is not 0, then
         //         set connection.[[UpdateNegotiationNeededFlagOnEmptyChain]]
         //         to true, and abort these steps.
@@ -2040,7 +2089,7 @@ impl RTCPeerConnection {
         //           false, clear the negotiation-needed flag by setting
         //           connection.[[NegotiationNeeded]] to false, and abort these
         //           steps.
-        if !self.check_if_negotiation_is_needed() {
+        if !self.check_if_negotiation_is_needed(ec) {
             self.slots.borrow_mut().negotiation_needed = false;
             return Ok(());
         }
@@ -2055,7 +2104,7 @@ impl RTCPeerConnection {
     }
 
     /// <https://w3c.github.io/webrtc-pc/#dfn-check-if-negotiation-is-needed>
-    fn check_if_negotiation_is_needed(&self) -> bool {
+    fn check_if_negotiation_is_needed(&self, ec: &mut dyn ExecutionContext<Types>) -> bool {
         let slots = self.slots.borrow();
         // Step 1: If any implementation-specific negotiation is required, as
         //         described at the start of this section, return true.
@@ -2075,7 +2124,11 @@ impl RTCPeerConnection {
         }
         // Step 5: For each transceiver in connection's set of transceivers,
         //         perform the following checks:
-        // Note: Transceivers are not implemented.
+        drop(slots);
+        if self.transceivers_need_negotiation(ec) {
+            return true;
+        }
+
         // Step 6: If all the preceding checks were performed and true was not
         //         returned, nothing remains to be negotiated; return false.
         false
@@ -2141,7 +2194,13 @@ impl RTCPeerConnection {
                     return Ok(());
                 }
                 // Step 5: Set connection.[[ConnectionState]] to newState.
+                let connected = state == "connected";
                 self.slots.borrow_mut().connection_state = state;
+                // Media flows once the transports connect: the receivers'
+                // tracks leave their initial muted state.
+                if connected {
+                    self.receiving_tracks_unmuted(time_millis, ec)?;
+                }
                 // Step 6: Fire an event named connectionstatechange at
                 //         connection.
                 fire_event(ec, self, "connectionstatechange", time_millis, false).map(|_| ())

@@ -14,6 +14,7 @@ use crate::js::Types;
 use crate::js::platform_objects::with_global_scope;
 use crate::webidl::bindings::create_interface_instance;
 
+use super::rtc_peer_connection::send_request;
 use crate::dom::fire_event_using;
 
 type JsObject = <Types as JsTypes>::JsObject;
@@ -233,12 +234,6 @@ impl RTCDataChannel {
         }
     }
 
-    fn webrtc_sender(ec: &mut dyn ExecutionContext<Types>) -> Option<ipc::IpcSender<Request>> {
-        with_global_scope(ec, |global_scope, _ec| Ok(global_scope.webrtc_sender()))
-            .ok()
-            .flatten()
-    }
-
     /// <https://w3c.github.io/webrtc-pc/#dom-datachannel-send>
     pub(crate) fn send(
         &self,
@@ -299,16 +294,15 @@ impl RTCDataChannel {
             slots.sent_total += size;
             slots.sent_total
         };
-        if let Some(sender) = Self::webrtc_sender(ec)
-            && let Err(error) = sender.send(Request::DataChannelSend {
+        send_request(
+            Request::DataChannelSend {
                 peer: self.peer,
                 channel: self.handle,
                 payload,
                 through,
-            })
-        {
-            log::error!("[webrtc] send: {error}");
-        }
+            },
+            ec,
+        );
         Ok(())
     }
 
@@ -375,14 +369,13 @@ impl RTCDataChannel {
         //           associated procedure.
         // Note: These run in the WebRTC process, which reports the closed
         // transport as `PeerEvent::DataChannelClosed`.
-        if let Some(sender) = Self::webrtc_sender(ec)
-            && let Err(error) = sender.send(Request::DataChannelClose {
+        send_request(
+            Request::DataChannelClose {
                 peer: self.peer,
                 channel: self.handle,
-            })
-        {
-            log::error!("[webrtc] close: {error}");
-        }
+            },
+            ec,
+        );
     }
 
     /// <https://w3c.github.io/webrtc-pc/#announce-datachannel-open>
@@ -526,15 +519,14 @@ impl RTCDataChannel {
         ec: &mut dyn ExecutionContext<Types>,
     ) {
         self.slots.borrow_mut().buffered_amount_low_threshold = threshold;
-        if let Some(sender) = Self::webrtc_sender(ec)
-            && let Err(error) = sender.send(Request::DataChannelSetBufferedAmountLowThreshold {
+        send_request(
+            Request::DataChannelSetBufferedAmountLowThreshold {
                 peer: self.peer,
                 channel: self.handle,
                 threshold,
-            })
-        {
-            log::error!("[webrtc] threshold: {error}");
-        }
+            },
+            ec,
+        );
     }
 
     /// <https://w3c.github.io/webrtc-pc/#data-transport-closed>

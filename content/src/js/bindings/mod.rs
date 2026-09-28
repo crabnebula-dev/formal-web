@@ -1,14 +1,18 @@
 pub(crate) mod dom;
 pub(crate) mod encoding;
+pub(crate) mod fetch;
 pub(crate) mod file_api;
 pub(crate) mod html;
 pub(crate) mod initialization;
+#[cfg(feature = "webrtc")]
+pub(crate) mod mediacapture_streams;
 pub(crate) mod streams;
 pub(crate) mod testutils;
 pub(crate) mod ui_events;
 pub(crate) mod url_standard;
 #[cfg(all(boa_backend, feature = "wasm"))]
 pub(crate) mod wasm;
+#[cfg(feature = "webrtc")]
 pub(crate) mod webrtc;
 pub(crate) mod websockets;
 
@@ -55,6 +59,7 @@ pub(crate) fn string_member(
     }
 }
 
+#[cfg(feature = "webrtc")]
 pub(crate) fn nullable_string_member(
     dict: &DictionaryAccess<Types>,
     key: &str,

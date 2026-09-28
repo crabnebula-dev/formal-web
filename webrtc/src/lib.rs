@@ -9,16 +9,17 @@
 mod backend;
 
 use std::collections::HashMap;
-use std::env;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
 use backend::{Backend, Peer, PeerEngine};
 use ipc_messages::content::{Command as ContentCommand, DocumentId};
+use ipc_messages::graphics::GraphicsCommand;
 use ipc_messages::webrtc::{
     Configuration, DataChannelHandle, DataChannelInit, DataChannelProperties, IceCandidate,
-    Message, OperationId, OperationResult, Payload, PeerConnectionId, PeerEvent, Request, Response,
-    SdpType, SessionDescription,
+    Message, OperationId, OperationResult, Payload, PeerConnectionId, PeerEvent, Request, SdpType,
+    SessionDescription, TrackKind, TransceiverDirection, TransceiverId, TransceiverSpec,
+    TransceiverState,
 };
 
 /// What a peer's worker thread runs: requests from content, and follow-ups
@@ -67,27 +68,6 @@ impl Channels {
     }
 }
 
-fn webrtc_token_from_args() -> Result<Option<String>, String> {
-    let mut args = env::args().skip(1);
-    while let Some(arg) = args.next() {
-        if arg == "--webrtc-token" {
-            return args
-                .next()
-                .map(Some)
-                .ok_or_else(|| String::from("missing webrtc token value"));
-        }
-    }
-    Ok(None)
-}
-
-pub fn run_webrtc_process_from_args() -> Result<(), String> {
-    let token = webrtc_token_from_args()?;
-    ipc::run_extension::<Request, Response>(
-        &token.unwrap_or_default(),
-        run_webrtc_process_with_server,
-    )
-}
-
 /// Where one peer connection's results and events go.
 #[derive(Clone)]
 struct ReplyRoute {
@@ -116,18 +96,46 @@ impl ReplyRoute {
 /// Run the WebRTC extension over an established connection: the entry point
 /// for the in-process transport as well as for the `formal-web-webrtc`
 /// binary.
-pub fn run_webrtc_process_with_server(
-    server: ipc::ExtensionServer<Response, Request>,
-) -> Result<(), String> {
-    let request_receiver = ipc::crossbeam_proxy(server.connection.receiver);
-    let engine: Arc<Backend> =
-        Arc::new(Backend::new().map_err(|error| format!("WebRTC backend: {error}"))?);
-    let mut workers: HashMap<PeerConnectionId, crossbeam_channel::Sender<Work>> = HashMap::new();
+/// The WebRTC engine of one net process: every peer connection of every
+/// content process it serves, each on its own worker thread.
+pub struct WebRtcEngine {
+    engine: Arc<Backend>,
+    workers: HashMap<PeerConnectionId, crossbeam_channel::Sender<Work>>,
+    /// The graphics process, which plays out the audio the engine decodes.
+    graphics: GraphicsRoute,
+}
 
-    while let Ok(incoming) = request_receiver.recv() {
-        let request = incoming.payload;
+/// The sender to the graphics process, shared by every peer worker's event
+/// sink; `None` until the user agent hands it over.
+type GraphicsRoute = Arc<Mutex<Option<ipc::IpcSender<GraphicsCommand>>>>;
+
+impl WebRtcEngine {
+    pub fn new() -> Result<Self, String> {
+        Ok(Self {
+            engine: Arc::new(Backend::new().map_err(|error| format!("WebRTC backend: {error}"))?),
+            workers: HashMap::new(),
+            graphics: Arc::new(Mutex::new(None)),
+        })
+    }
+
+    /// The graphics process's command sender, for audio playout.
+    pub fn set_graphics_sender(&mut self, sender: ipc::IpcSender<GraphicsCommand>) {
+        let mut graphics = match self.graphics.lock() {
+            Ok(graphics) => graphics,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        *graphics = Some(sender);
+    }
+
+    /// Run one request from a content process.
+    pub fn handle(&mut self, request: Request) {
+        let engine = &self.engine;
+        let workers = &mut self.workers;
         let peer = match &request {
-            Request::Shutdown => break,
+            Request::Shutdown => {
+                workers.clear();
+                return;
+            }
             Request::CreatePeer {
                 document_id,
                 peer,
@@ -139,13 +147,13 @@ pub fn run_webrtc_process_with_server(
                     peer: *peer,
                     sender: Arc::new(Mutex::new(reply_to.clone())),
                 };
-                match spawn_peer_worker(&engine, configuration, route) {
+                match spawn_peer_worker(engine, configuration, route, Arc::clone(&self.graphics)) {
                     Ok(worker) => {
                         workers.insert(*peer, worker);
                     }
                     Err(error) => log::error!("[webrtc] create peer {peer:?}: {error}"),
                 }
-                continue;
+                return;
             }
             Request::CreateOffer { peer, .. }
             | Request::CreateAnswer { peer, .. }
@@ -156,6 +164,9 @@ pub fn run_webrtc_process_with_server(
             | Request::DataChannelSend { peer, .. }
             | Request::DataChannelSetBufferedAmountLowThreshold { peer, .. }
             | Request::DataChannelClose { peer, .. }
+            | Request::UpsertTransceiver { peer, .. }
+            | Request::GetStats { peer, .. }
+            | Request::PushPcm { peer, .. }
             | Request::Close { peer } => *peer,
         };
         let closing = matches!(request, Request::Close { .. });
@@ -168,20 +179,39 @@ pub fn run_webrtc_process_with_server(
             workers.remove(&peer);
         }
     }
-    Ok(())
 }
 
 fn spawn_peer_worker(
     engine: &Arc<Backend>,
     configuration: &Configuration,
     route: ReplyRoute,
+    graphics: GraphicsRoute,
 ) -> Result<crossbeam_channel::Sender<Work>, String> {
     let (sender, receiver) = crossbeam_channel::unbounded::<Work>();
     let channels = Arc::new(Mutex::new(Channels::default()));
     let events = route.clone();
     let sink_channels = Arc::clone(&channels);
     let sink_work = sender.clone();
+    let sink_peer = route.peer;
     let sink: backend::EventSink = Arc::new(move |event| {
+        // Decoded audio goes to the graphics process for playout, not to
+        // content.
+        if let backend::PeerEvent::AudioPcm { tx, samples } = event {
+            let graphics = match graphics.lock() {
+                Ok(graphics) => graphics,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            if let Some(sender) = graphics.as_ref()
+                && let Err(error) = sender.send(GraphicsCommand::PlayAudioPcm {
+                    peer: sink_peer,
+                    transceiver: TransceiverId(tx),
+                    samples,
+                })
+            {
+                log::debug!("[webrtc] audio playout for peer {sink_peer:?}: {error}");
+            }
+            return;
+        }
         let mut channels = match sink_channels.lock() {
             Ok(channels) => channels,
             Err(poisoned) => poisoned.into_inner(),
@@ -287,7 +317,7 @@ fn run_request(peer: &dyn Peer, request: Request, route: &ReplyRoute, channels: 
         } => {
             hold_events(channels, true, route);
             let result = peer.set_local_description(&session_description(description));
-            complete(operation, done_result(result.map(|_| ())));
+            complete(operation, negotiated_result(result));
             hold_events(channels, false, route);
         }
         Request::SetRemoteDescription {
@@ -297,7 +327,7 @@ fn run_request(peer: &dyn Peer, request: Request, route: &ReplyRoute, channels: 
         } => {
             hold_events(channels, true, route);
             let result = peer.set_remote_description(&session_description(description));
-            complete(operation, done_result(result.map(|_| ())));
+            complete(operation, negotiated_result(result));
             hold_events(channels, false, route);
         }
         Request::AddIceCandidate {
@@ -371,6 +401,27 @@ fn run_request(peer: &dyn Peer, request: Request, route: &ReplyRoute, channels: 
                 log::debug!("[webrtc] close channel {}: {error}", channel.0);
             }
         }
+        Request::UpsertTransceiver { spec, .. } => {
+            if let Err(error) = peer.upsert_transceiver(transceiver_spec(spec)) {
+                log::error!("[webrtc] upsert transceiver: {error}");
+            }
+        }
+        Request::PushPcm {
+            transceiver,
+            samples,
+            ..
+        } => {
+            if let Err(error) = peer.push_pcm(transceiver.0, samples) {
+                log::debug!("[webrtc] push pcm: {error}");
+            }
+        }
+        Request::GetStats { operation, .. } => {
+            let result = match peer.stats() {
+                Ok(stats) => OperationResult::Stats(stats.to_string()),
+                Err(error) => error_result(error),
+            };
+            complete(operation, result);
+        }
         Request::Close { .. } | Request::CreatePeer { .. } | Request::Shutdown => {}
     }
 }
@@ -425,6 +476,82 @@ fn done_result(result: Result<(), backend::Error>) -> OperationResult {
     match result {
         Ok(()) => OperationResult::Done,
         Err(error) => error_result(error),
+    }
+}
+
+/// The result of applying a description: the transceiver states, or the
+/// error.
+fn negotiated_result(
+    result: Result<Vec<backend::TransceiverState>, backend::Error>,
+) -> OperationResult {
+    match result {
+        Ok(states) => {
+            OperationResult::Negotiated(states.into_iter().map(transceiver_state).collect())
+        }
+        Err(error) => error_result(error),
+    }
+}
+
+fn track_kind(kind: TrackKind) -> backend::TrackKind {
+    match kind {
+        TrackKind::Audio => backend::TrackKind::Audio,
+        TrackKind::Video => backend::TrackKind::Video,
+    }
+}
+
+fn track_kind_from_backend(kind: backend::TrackKind) -> TrackKind {
+    match kind {
+        backend::TrackKind::Audio => TrackKind::Audio,
+        backend::TrackKind::Video => TrackKind::Video,
+    }
+}
+
+fn direction(direction: TransceiverDirection) -> backend::Direction {
+    match direction {
+        TransceiverDirection::Sendrecv => backend::Direction::Sendrecv,
+        TransceiverDirection::Sendonly => backend::Direction::Sendonly,
+        TransceiverDirection::Recvonly => backend::Direction::Recvonly,
+        TransceiverDirection::Inactive => backend::Direction::Inactive,
+        TransceiverDirection::Stopped => backend::Direction::Stopped,
+    }
+}
+
+fn direction_from_backend(direction: backend::Direction) -> TransceiverDirection {
+    match direction {
+        backend::Direction::Sendrecv => TransceiverDirection::Sendrecv,
+        backend::Direction::Sendonly => TransceiverDirection::Sendonly,
+        backend::Direction::Recvonly => TransceiverDirection::Recvonly,
+        backend::Direction::Inactive => TransceiverDirection::Inactive,
+        backend::Direction::Stopped => TransceiverDirection::Stopped,
+    }
+}
+
+fn transceiver_spec(spec: TransceiverSpec) -> backend::TransceiverSpec {
+    backend::TransceiverSpec {
+        id: spec.id.0,
+        kind: track_kind(spec.kind),
+        direction: direction(spec.direction),
+        stream_ids: spec.stream_ids,
+        sender_track_id: spec.sender_track_id,
+        from_add_track: spec.from_add_track,
+        stopped: spec.stopped,
+        codec_preferences: Vec::new(),
+    }
+}
+
+fn transceiver_state(state: backend::TransceiverState) -> TransceiverState {
+    TransceiverState {
+        id: TransceiverId(state.id),
+        kind: track_kind_from_backend(state.kind),
+        mid: state.mid,
+        direction: direction_from_backend(state.direction),
+        current_direction: state.current_direction.map(direction_from_backend),
+        remote_direction: state.remote_direction.map(direction_from_backend),
+        remote_stream_ids: state.remote_stream_ids,
+        remote_track_id: state.remote_track_id,
+        created_by_remote: state.created_by_remote,
+        sender_track_id: state.sender_track_id,
+        stopped: state.stopped,
     }
 }
 

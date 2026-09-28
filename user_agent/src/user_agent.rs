@@ -1534,8 +1534,6 @@ struct UserAgentWorker {
     /// ShutdownComplete, then joins the child.
     graphics_child: Option<std::process::Child>,
     /// Sender to the WebRTC extension, handed to every content process.
-    webrtc_extension_sender: Option<ipc::IpcSender<ipc_messages::webrtc::Request>>,
-    webrtc_child: Option<std::process::Child>,
 
     /// Host integration used to surface navigation, paint, clipboard, and viewport state.
     host: Arc<dyn Embedder>,
@@ -1615,6 +1613,21 @@ impl UserAgentWorker {
                     {
                         log::error!("failed to send trace sender to graphics: {error}");
                     }
+                    // The audio paths of WebRTC: captured PCM goes from graphics
+                    // to the net process, decoded PCM from the net process to
+                    // graphics.
+                    if let Err(error) =
+                        sender.send(ipc_messages::graphics::GraphicsCommand::SetNetSender(
+                            net_connection.sender(),
+                        ))
+                    {
+                        log::error!("failed to send the net sender to graphics: {error}");
+                    }
+                    if let Err(error) = net_connection.sender().send(
+                        ipc_messages::network::Request::SetGraphicsSender(sender.clone()),
+                    ) {
+                        log::error!("failed to send the graphics sender to net: {error}");
+                    }
                     let receiver = connection.receiver;
                     let child = handle.take_child();
                     (Some(sender), ipc::crossbeam_proxy(receiver), child)
@@ -1622,24 +1635,6 @@ impl UserAgentWorker {
                 Err(error) => {
                     log::error!("failed to start graphics process: {error}");
                     (None, crossbeam_channel::never(), None)
-                }
-            }
-        };
-
-        // Start the WebRTC process (the network side of RTCPeerConnection).
-        let (webrtc_extension_sender, webrtc_child) = {
-            use crate::ipc_manifest::WebRtcExtensionManifest;
-            match ipc::ExtensionHandle::launch::<
-                WebRtcExtensionManifest,
-                ipc_messages::webrtc::Request,
-                ipc_messages::webrtc::Response,
-            >(&WebRtcExtensionManifest {
-                extensions_directory: config.extensions_directory.clone(),
-            }) {
-                Ok((mut handle, connection)) => (Some(connection.sender), handle.take_child()),
-                Err(error) => {
-                    log::error!("failed to start webrtc process: {error}");
-                    (None, None)
                 }
             }
         };
@@ -1663,8 +1658,6 @@ impl UserAgentWorker {
             graphics_extension_sender,
             graphics_event_receiver,
             graphics_child,
-            webrtc_extension_sender,
-            webrtc_child,
             host,
             tla_tracer: TLATracer::new("Navigation", "formal-web:user-agent", trace_sender.clone()),
             epoch_anchor,
@@ -2188,6 +2181,14 @@ impl UserAgentWorker {
     }
 
     /// route the embedder's answer back to whoever asked for the fetch.
+    /// A header list holding only the content type the embedder reports.
+    fn content_type_header_list(content_type: &str) -> Vec<(String, String)> {
+        if content_type.is_empty() {
+            return Vec::new();
+        }
+        vec![(String::from("content-type"), content_type.to_owned())]
+    }
+
     fn complete_embedder_scheme_fetch(
         &mut self,
         request_id: EmbedderSchemeFetchId,
@@ -2205,6 +2206,8 @@ impl UserAgentWorker {
         let result = result.map(|response| ContentFetchResponse {
             final_url: url,
             status: response.status,
+            status_text: String::new(),
+            header_list: Self::content_type_header_list(&response.content_type),
             content_type: response.content_type,
             body: response.body,
         });
@@ -2342,7 +2345,6 @@ impl UserAgentWorker {
             self.trace_sender.clone(),
             self.net_connection.sender(),
             self.graphics_extension_sender.clone(),
-            self.webrtc_extension_sender.clone(),
             &self.config,
         )?;
         // Step 3: Let agent be a new agent whose [[CanBlock]] is canBlock, [[Signifier]] is
@@ -5515,18 +5517,6 @@ impl UserAgentWorker {
             && let Err(error) = child.wait()
         {
             log::error!("failed to wait for graphics process exit: {error}");
-        }
-
-        // Shut down the WebRTC process, which closes every peer connection.
-        if let Some(sender) = &self.webrtc_extension_sender
-            && let Err(error) = sender.send(ipc_messages::webrtc::Request::Shutdown)
-        {
-            log::error!("failed to send shutdown to webrtc process: {error}");
-        }
-        if let Some(mut child) = self.webrtc_child.take()
-            && let Err(error) = child.wait()
-        {
-            log::error!("failed to wait for webrtc process exit: {error}");
         }
 
         self.net_connection.shutdown();
