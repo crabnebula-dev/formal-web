@@ -63,6 +63,7 @@ pub(crate) fn create_sequence_from_iterable<T>(
 }
 
 /// The identity conversion: a sequence<any>.
+#[cfg(feature = "webrtc")]
 pub(crate) fn any_value(
     value: JsValue,
     _ec: &mut dyn ExecutionContext<Types>,

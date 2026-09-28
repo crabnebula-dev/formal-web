@@ -16,7 +16,7 @@ fn basic_url_parser(input: &str, base: Option<&Url>) -> Option<Url> {
 }
 
 /// <https://url.spec.whatwg.org/#api-url-parser>
-fn api_url_parser(url: &str, base: Option<&str>) -> Option<Url> {
+pub(crate) fn api_url_parser(url: &str, base: Option<&str>) -> Option<Url> {
     // Step 1: Let parsedBase be null.
     let mut parsed_base = None;
 

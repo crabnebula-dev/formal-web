@@ -55,6 +55,7 @@ pub(crate) fn not_supported_error_value(
 }
 
 /// <https://webidl.spec.whatwg.org/#operationerror>
+#[cfg(feature = "webrtc")]
 pub(crate) fn operation_error_value(
     message: String,
     ec: &mut dyn ExecutionContext<Types>,
@@ -63,6 +64,7 @@ pub(crate) fn operation_error_value(
 }
 
 /// <https://webidl.spec.whatwg.org/#invalidmodificationerror>
+#[cfg(feature = "webrtc")]
 pub(crate) fn invalid_modification_error_value(
     message: String,
     ec: &mut dyn ExecutionContext<Types>,
@@ -78,9 +80,9 @@ pub(crate) fn invalid_access_error_value(
     dom_exception_value(message, String::from("InvalidAccessError"), ec)
 }
 
-/// <https://webidl.spec.whatwg.org/#dfn-DOMException>
-/// A DOMException whose name comes from another process (for example the
-/// WebRTC process's operation results).
+/// A DOMException whose name comes from another process (the WebRTC
+/// engine's operation results).
+#[cfg(feature = "webrtc")]
 pub(crate) fn named_dom_exception_value(
     name: String,
     message: String,

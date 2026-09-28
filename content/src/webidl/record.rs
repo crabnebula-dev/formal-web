@@ -9,13 +9,28 @@ pub(crate) fn convert_js_to_record_of_strings(
     value: &JsValue,
     ec: &mut dyn ExecutionContext<Types>,
 ) -> Completion<Vec<(String, String)>, Types> {
+    convert_js_to_record(
+        value,
+        |key, ec| ec.to_rust_string(key),
+        |value, ec| ec.to_rust_string(value),
+        ec,
+    )
+}
+
+/// <https://webidl.spec.whatwg.org/#js-record>
+pub(crate) fn convert_js_to_record<V>(
+    value: &JsValue,
+    mut convert_key: impl FnMut(JsValue, &mut dyn ExecutionContext<Types>) -> Completion<String, Types>,
+    mut convert_value: impl FnMut(JsValue, &mut dyn ExecutionContext<Types>) -> Completion<V, Types>,
+    ec: &mut dyn ExecutionContext<Types>,
+) -> Completion<Vec<(String, V)>, Types> {
     // Step 1: If V is not an Object, throw a TypeError.
     let Some(object) = Types::value_as_object(value) else {
         return Err(ec.new_type_error("value is not a record"));
     };
 
     // Step 2: Let result be a new empty instance of record<K, V>.
-    let mut result: Vec<(String, String)> = Vec::new();
+    let mut result: Vec<(String, V)> = Vec::new();
 
     // Step 3: Let keys be ? V.[[OwnPropertyKeys]]().
     let keys = ec.own_property_keys(object.clone())?;
@@ -34,20 +49,18 @@ pub(crate) fn convert_js_to_record_of_strings(
         }
 
         // Step 4.2.1: Let typedKey be key converted to an IDL value of type K.
-        // Note: A Symbol key has no string conversion; such keys are left out
-        // of the record.
         let key_value = ec.value_from_property_key(key.clone());
         if Types::value_as_symbol(&key_value).is_some() {
-            continue;
+            return Err(ec.new_type_error("a Symbol cannot be converted to a string"));
         }
-        let typed_key = ec.to_rust_string(key_value)?;
+        let typed_key = convert_key(key_value, ec)?;
 
         // Step 4.2.2: Let value be ? Get(V, key).
         let value = ExecutionContext::get(ec, object.clone(), key)?;
 
         // Step 4.2.3: Let typedValue be value converted to an IDL value of
         // type V.
-        let typed_value = ec.to_rust_string(value)?;
+        let typed_value = convert_value(value, ec)?;
 
         // Step 4.2.4: Set result[typedKey] to typedValue.
         match result.iter_mut().find(|(name, _)| *name == typed_key) {

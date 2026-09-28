@@ -26,6 +26,7 @@ pub(crate) fn enforce_range_unsigned_long_long(
 
 /// <https://webidl.spec.whatwg.org/#js-unsigned-short>
 /// The [EnforceRange] form.
+#[cfg(feature = "webrtc")]
 pub(crate) fn enforce_range_unsigned_short(
     value: &JsValue,
     ec: &mut dyn ExecutionContext<Types>,

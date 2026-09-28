@@ -123,6 +123,7 @@ pub(crate) enum Task {
     /// tasks its algorithms queue), or one the connection queued itself.
     /// Queued on the networking task source.
     /// <https://html.spec.whatwg.org/#networking-task-source>
+    #[cfg(feature = "webrtc")]
     WebRtc {
         document_id: DocumentId,
         peer: ipc_messages::webrtc::PeerConnectionId,

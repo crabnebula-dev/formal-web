@@ -19,6 +19,23 @@ pub(crate) fn get_a_copy_of_the_buffer_source(
         .ok_or_else(|| ec.new_type_error("argument must be an ArrayBuffer or typed array"))?;
 
     // Step 5: "If jsBufferSource has a [[ViewedArrayBuffer]] internal slot, then:"
+    if let Some(data_view) = <Types as JsTypes>::object_as_data_view(&object) {
+        // Step 5.1: "Set jsArrayBuffer to jsBufferSource.[[ViewedArrayBuffer]]."
+        let array_buffer = ec.data_view_buffer(&data_view)?;
+
+        // Step 5.2: "Set offset to jsBufferSource.[[ByteOffset]]."
+        let offset = ec.data_view_byte_offset(&data_view)? as usize;
+
+        // Step 5.3: "Set length to jsBufferSource.[[ByteLength]]."
+        let length = ec.data_view_byte_length(&data_view)? as usize;
+
+        // Steps 7 to 10: the bytes of the viewed buffer, or the empty byte
+        // sequence for a detached buffer.
+        if let Some(all_bytes) = ec.array_buffer_data(&array_buffer) {
+            return Ok(all_bytes[offset..offset + length].to_vec());
+        }
+        return Ok(Vec::new());
+    }
     if let Some(typed_array) = <Types as JsTypes>::object_as_typed_array(&object) {
         // Step 5.1: "Set jsArrayBuffer to jsBufferSource.[[ViewedArrayBuffer]]."
         let array_buffer = ec.typed_array_buffer(&typed_array)?;
@@ -62,6 +79,7 @@ pub(crate) fn is_buffer_source(value: &JsValue, _ec: &mut dyn ExecutionContext<T
     };
     <Types as JsTypes>::object_as_array_buffer(&object).is_some()
         || <Types as JsTypes>::object_as_typed_array(&object).is_some()
+        || <Types as JsTypes>::object_as_data_view(&object).is_some()
 }
 
 /// <https://webidl.spec.whatwg.org/#arraybuffer-create>

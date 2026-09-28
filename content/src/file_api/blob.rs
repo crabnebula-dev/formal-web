@@ -120,6 +120,15 @@ impl Blob {
         }
     }
 
+    /// A Blob whose contents are bytes and whose type attribute is
+    /// `type_`.
+    pub(crate) fn with_type(bytes: Vec<u8>, type_: String) -> Self {
+        Self {
+            bytes: Rc::from(bytes),
+            type_,
+        }
+    }
+
     /// <https://w3c.github.io/FileAPI/#dfn-size>
     pub(crate) fn size(&self) -> u64 {
         // Returns the size of the byte sequence in number of bytes.

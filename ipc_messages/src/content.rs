@@ -119,7 +119,11 @@ pub struct LoadedDocumentResponse {
 pub struct FetchResponse {
     pub final_url: String,
     pub status: u16,
+    /// <https://fetch.spec.whatwg.org/#concept-response-status-message>
+    pub status_text: String,
     pub content_type: String,
+    /// <https://fetch.spec.whatwg.org/#concept-response-header-list>
+    pub header_list: Vec<(String, String)>,
     pub body: Vec<u8>,
 }
 
@@ -1039,9 +1043,6 @@ pub enum Command {
         net_sender: ipc::IpcSender<crate::network::Request>,
         /// Direct sender to the graphics process.
         graphics_sender: Option<ipc::IpcSender<crate::graphics::GraphicsCommand>>,
-        /// Direct sender to the WebRTC process, which runs the network side
-        /// of every RTCPeerConnection.
-        webrtc_sender: Option<ipc::IpcSender<crate::webrtc::Request>>,
         /// The content process's own command sender. Net uses this to route
         /// `CompleteDocumentFetch` directly to this content process.
         content_command_sender: ipc::IpcSender<Command>,
@@ -1054,8 +1055,8 @@ pub enum Command {
         embedder_schemes: Vec<String>,
     },
     /// An operation result or an event for one RTCPeerConnection, from the
-    /// WebRTC process. Content queues a task for it on the networking task
-    /// source.
+    /// WebRTC engine in the net process. Content queues a task for it on the
+    /// networking task source.
     /// <https://html.spec.whatwg.org/#networking-task-source>
     WebRtc {
         document_id: DocumentId,
@@ -1584,7 +1585,9 @@ mod tests {
             response: FetchResponse {
                 final_url: String::from("https://example.test/script.js"),
                 status: 404,
+                status_text: String::from("Not Found"),
                 content_type: String::from("text/html"),
+                header_list: vec![(String::from("content-type"), String::from("text/html"))],
                 body: vec![1, 2, 3, 4],
             },
         })
@@ -1603,7 +1606,12 @@ mod tests {
                     FetchResponse {
                         final_url: String::from("https://example.test/script.js"),
                         status: 404,
+                        status_text: String::from("Not Found"),
                         content_type: String::from("text/html"),
+                        header_list: vec![(
+                            String::from("content-type"),
+                            String::from("text/html")
+                        )],
                         body: vec![1, 2, 3, 4],
                     }
                 );

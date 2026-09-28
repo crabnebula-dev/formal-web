@@ -7,6 +7,9 @@ use crate::html::{
     structured_data::safe_passing_of_structured_data::StructuredCloneOptions,
     window_computed_style_properties_for_element,
 };
+use crate::js::Types;
+use crate::js::bindings::event_handlers;
+use crate::js::bindings::fetch::fetch_operation;
 use crate::js::bindings::html::global_event_handlers::define_global_event_handlers;
 use crate::webidl::bindings::{AttributeDef, InterfaceDefinition, OperationDef, WebIdlInterface};
 use crate::webidl::callback_function_value;
@@ -67,6 +70,32 @@ impl WebIdlInterface<crate::js::Types> for Window {
             legacy_lenient_setter: false,
             exposed: None,
         });
+        for (id, getter, setter) in [
+            (
+                "onunhandledrejection",
+                get_onunhandledrejection as _,
+                set_onunhandledrejection as _,
+            ),
+            (
+                "onrejectionhandled",
+                get_onrejectionhandled as _,
+                set_onrejectionhandled as _,
+            ),
+        ] {
+            def.add_attribute(AttributeDef {
+                id,
+                getter,
+                setter: Some(setter),
+                static_: false,
+                unforgeable: false,
+                promise_type: false,
+                legacy_lenient_this: false,
+                replaceable: false,
+                put_forwards: None,
+                legacy_lenient_setter: false,
+                exposed: None,
+            });
+        }
         def.add_attribute(AttributeDef {
             id: "name",
             getter: get_name,
@@ -324,6 +353,15 @@ impl WebIdlInterface<crate::js::Types> for Window {
             static_: false,
             unforgeable: false,
             promise_type: false,
+            exposed: None,
+        });
+        def.add_operation(OperationDef {
+            id: "fetch",
+            length: 1,
+            method: fetch_operation,
+            static_: false,
+            unforgeable: false,
+            promise_type: true,
             exposed: None,
         });
     }
@@ -865,3 +903,8 @@ fn current_window_object_from(
 ) -> JsObject {
     resolve_window(this, ec)
 }
+
+event_handlers!(
+    get_onunhandledrejection, set_onunhandledrejection, "unhandledrejection";
+    get_onrejectionhandled, set_onrejectionhandled, "rejectionhandled";
+);
