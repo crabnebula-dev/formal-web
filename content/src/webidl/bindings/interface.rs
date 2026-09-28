@@ -119,7 +119,8 @@ where
 
     // Step 13: "Otherwise, if interfaces contains an interface which supports
     //   indexed properties, named properties, or both:"
-    //   Not yet implemented.
+    //   Performed by `create_legacy_platform_object`, which wraps the instance
+    //   in the proxy carrying the legacy platform object internal methods.
     // Step 14: "Return instance."
     <Ty as PostCreateReflector<Ty>>::set_reflector(&instance, ec);
 

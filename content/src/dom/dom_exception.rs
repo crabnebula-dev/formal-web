@@ -37,6 +37,21 @@ impl DOMException {
     }
 
     /// <https://webidl.spec.whatwg.org/#dfn-error-names-table>
+    pub(crate) fn invalid_character_error() -> Self {
+        Self::new(String::new(), String::from("InvalidCharacterError"))
+    }
+
+    /// <https://webidl.spec.whatwg.org/#dfn-error-names-table>
+    pub(crate) fn in_use_attribute_error() -> Self {
+        Self::new(String::new(), String::from("InUseAttributeError"))
+    }
+
+    /// <https://webidl.spec.whatwg.org/#dfn-error-names-table>
+    pub(crate) fn namespace_error() -> Self {
+        Self::new(String::new(), String::from("NamespaceError"))
+    }
+
+    /// <https://webidl.spec.whatwg.org/#dfn-error-names-table>
     pub(crate) fn not_supported_error() -> Self {
         Self::new(String::new(), String::from("NotSupportedError"))
     }
