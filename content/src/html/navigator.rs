@@ -1,4 +1,15 @@
 use js_engine::gc_struct;
+#[cfg(feature = "webrtc")]
+use js_engine::{Completion, ExecutionContext};
+
+#[cfg(feature = "webrtc")]
+use crate::js::Types;
+#[cfg(feature = "webrtc")]
+use crate::js::platform_objects::with_global_scope;
+#[cfg(feature = "webrtc")]
+use crate::mediacapture_streams::MediaDevices;
+#[cfg(feature = "webrtc")]
+use crate::webidl::bindings::create_interface_instance;
 
 /// <https://html.spec.whatwg.org/#dom-navigator-useragent>
 pub(crate) fn navigator_user_agent() -> String {
@@ -191,5 +202,32 @@ impl Navigator {
     pub(crate) fn java_enabled(&self) -> bool {
         // The javaEnabled() method steps are to return false.
         false
+    }
+}
+
+#[cfg(feature = "webrtc")]
+impl Navigator {
+    /// <https://w3c.github.io/mediacapture-main/#dom-navigator-mediadevices>
+    pub(crate) fn media_devices_value(
+        &self,
+        ec: &mut dyn ExecutionContext<Types>,
+    ) -> Completion<MediaDevices, Types> {
+        // The mediaDevices attribute returns the MediaDevices object
+        // associated with this Navigator: one per navigator, created on first
+        // access and kept on the realm's global scope.
+        with_global_scope(ec, |global_scope, ec| {
+            if let Some(object) = global_scope.media_devices_object(ec) {
+                return ec
+                    .with_object_any(&object)
+                    .and_then(|data| data.downcast_ref::<MediaDevices>().cloned())
+                    .ok_or_else(|| ec.new_type_error("mediaDevices object is not a MediaDevices"));
+            }
+            let media_devices = MediaDevices::new(ec);
+            let object = create_interface_instance::<Types, MediaDevices>(media_devices, ec)?;
+            global_scope.store_media_devices_object(object.clone(), ec);
+            ec.with_object_any(&object)
+                .and_then(|data| data.downcast_ref::<MediaDevices>().cloned())
+                .ok_or_else(|| ec.new_type_error("mediaDevices object is not a MediaDevices"))
+        })
     }
 }

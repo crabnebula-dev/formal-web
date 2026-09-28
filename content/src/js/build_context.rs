@@ -127,17 +127,20 @@ fn setup_realm(engine: &mut Engine, _document: Rc<RefCell<BaseDocument>>) -> Res
     #[cfg(not(boa_backend))]
     let document = _document;
     use crate::dom::{
-        AbortController, AbortSignal, DOMException, Document, Element, Event, EventTarget, Node,
+        AbortController, AbortSignal, Attr, DOMException, DOMImplementation, Document, Element,
+        Event, EventTarget, NamedNodeMap, Node,
     };
     use crate::encoding::{TextDecoder, TextEncoder};
+    use crate::fetch::{FetchApiRequest, Headers, Response};
     use crate::file_api::{Blob, File};
     #[cfg(not(boa_backend))]
     use crate::html::GlobalScope;
     use crate::html::{
         CanvasRenderingContext2D, HTMLAnchorElement, HTMLCanvasElement, HTMLElement,
-        HTMLIFrameElement, HTMLInputElement, HTMLMediaElement, HTMLVideoElement, Location,
-        MessageChannel, MessageEvent, MessagePort, Navigator, OffscreenCanvas,
-        OffscreenCanvasRenderingContext2D, Window, WindowProxy, Worker,
+        HTMLIFrameElement, HTMLInputElement, HTMLLinkElement, HTMLMediaElement, HTMLScriptElement,
+        HTMLVideoElement, Location, MessageChannel, MessageEvent, MessagePort, Navigator,
+        OffscreenCanvas, OffscreenCanvasRenderingContext2D, PromiseRejectionEvent, Window,
+        WindowProxy, Worker,
     };
     use crate::streams::{
         ByteLengthQueuingStrategy, CountQueuingStrategy, ReadableByteStreamController,
@@ -207,8 +210,10 @@ fn setup_realm(engine: &mut Engine, _document: Rc<RefCell<BaseDocument>>) -> Res
 
     reg!(EventTarget);
     reg!(DOMException);
+    reg!(DOMImplementation);
     reg!(Event);
     reg!(MessageEvent);
+    reg!(PromiseRejectionEvent);
     reg!(MessageChannel);
     reg!(MessagePort);
     reg!(UIEvent);
@@ -218,8 +223,12 @@ fn setup_realm(engine: &mut Engine, _document: Rc<RefCell<BaseDocument>>) -> Res
     reg!(Node);
     reg!(Document);
     reg!(Element);
+    reg!(Attr);
+    reg!(NamedNodeMap);
     reg!(HTMLElement);
     reg!(HTMLAnchorElement);
+    reg!(HTMLScriptElement);
+    reg!(HTMLLinkElement);
     reg!(HTMLCanvasElement);
     reg!(CanvasRenderingContext2D);
     reg!(HTMLIFrameElement);
@@ -235,7 +244,11 @@ fn setup_realm(engine: &mut Engine, _document: Rc<RefCell<BaseDocument>>) -> Res
     reg!(Navigator);
     reg!(URL);
     reg!(URLSearchParams);
-    install_url_search_params_iterator(engine)?;
+    install_pair_iterator::<URLSearchParams>(engine)?;
+    reg!(Headers);
+    install_pair_iterator::<Headers>(engine)?;
+    reg!(FetchApiRequest);
+    reg!(Response);
     reg!(Blob);
     reg!(File);
     reg!(TextEncoder);
@@ -255,11 +268,17 @@ fn setup_realm(engine: &mut Engine, _document: Rc<RefCell<BaseDocument>>) -> Res
     reg!(WritableStreamDefaultWriter);
     reg!(TransformStream);
     reg!(TransformStreamDefaultController);
-    // WebRTC: [Exposed=Window].
+    // WebRTC and Media Capture and Streams: [Exposed=Window], built with the
+    // `webrtc` feature.
+    #[cfg(feature = "webrtc")]
     {
+        use crate::mediacapture_streams::{
+            MediaDeviceInfo, MediaDevices, MediaStream, MediaStreamTrack, MediaStreamTrackEvent,
+        };
         use crate::webrtc::{
             RTCDataChannel, RTCDataChannelEvent, RTCIceCandidate, RTCPeerConnection,
-            RTCPeerConnectionIceEvent, RTCSessionDescription,
+            RTCPeerConnectionIceEvent, RTCRtpReceiver, RTCRtpSender, RTCRtpTransceiver,
+            RTCSessionDescription, RTCStatsReport, RTCTrackEvent,
         };
         use crate::websockets::{CloseEvent, WebSocket};
         reg!(RTCPeerConnection);
@@ -270,6 +289,31 @@ fn setup_realm(engine: &mut Engine, _document: Rc<RefCell<BaseDocument>>) -> Res
         reg!(RTCDataChannelEvent);
         reg!(WebSocket);
         reg!(CloseEvent);
+        reg!(MediaStreamTrack);
+        reg!(MediaStream);
+        reg!(MediaDevices);
+        reg!(MediaDeviceInfo);
+        reg!(MediaStreamTrackEvent);
+        reg!(RTCRtpSender);
+        reg!(RTCRtpReceiver);
+        reg!(RTCRtpTransceiver);
+        reg!(RTCTrackEvent);
+        reg!(RTCStatsReport);
+        install_pair_iterator::<RTCStatsReport>(engine)?;
+        wire_registry_prototype::<crate::js::Types, MediaStreamTrack, EventTarget>(engine);
+        wire_registry_prototype::<crate::js::Types, MediaStream, EventTarget>(engine);
+        wire_registry_prototype::<crate::js::Types, MediaDevices, EventTarget>(engine);
+        wire_registry_prototype::<crate::js::Types, MediaStreamTrackEvent, Event>(engine);
+        wire_registry_prototype::<crate::js::Types, RTCTrackEvent, Event>(engine);
+        wire_registry_constructor_prototype::<crate::js::Types, MediaStreamTrack, EventTarget>(
+            engine,
+        );
+        wire_registry_constructor_prototype::<crate::js::Types, MediaStream, EventTarget>(engine);
+        wire_registry_constructor_prototype::<crate::js::Types, MediaDevices, EventTarget>(engine);
+        wire_registry_constructor_prototype::<crate::js::Types, MediaStreamTrackEvent, Event>(
+            engine,
+        );
+        wire_registry_constructor_prototype::<crate::js::Types, RTCTrackEvent, Event>(engine);
         wire_registry_prototype::<crate::js::Types, WebSocket, EventTarget>(engine);
         wire_registry_prototype::<crate::js::Types, CloseEvent, Event>(engine);
         wire_registry_constructor_prototype::<crate::js::Types, WebSocket, EventTarget>(engine);
@@ -293,14 +337,19 @@ fn setup_realm(engine: &mut Engine, _document: Rc<RefCell<BaseDocument>>) -> Res
     // Step 6: Wire prototype chains.
     wire_registry_prototype::<crate::js::Types, UIEvent, Event>(engine);
     wire_registry_prototype::<crate::js::Types, MessageEvent, Event>(engine);
+    wire_registry_prototype::<crate::js::Types, PromiseRejectionEvent, Event>(engine);
+    wire_registry_constructor_prototype::<crate::js::Types, PromiseRejectionEvent, Event>(engine);
     wire_registry_prototype::<crate::js::Types, MessagePort, EventTarget>(engine);
     wire_registry_prototype::<crate::js::Types, MouseEvent, UIEvent>(engine);
     wire_registry_prototype::<crate::js::Types, AbortSignal, EventTarget>(engine);
     wire_registry_prototype::<crate::js::Types, Node, EventTarget>(engine);
     wire_registry_prototype::<crate::js::Types, Document, Node>(engine);
     wire_registry_prototype::<crate::js::Types, Element, Node>(engine);
+    wire_registry_prototype::<crate::js::Types, Attr, Node>(engine);
     wire_registry_prototype::<crate::js::Types, HTMLElement, Element>(engine);
     wire_registry_prototype::<crate::js::Types, HTMLAnchorElement, HTMLElement>(engine);
+    wire_registry_prototype::<crate::js::Types, HTMLScriptElement, HTMLElement>(engine);
+    wire_registry_prototype::<crate::js::Types, HTMLLinkElement, HTMLElement>(engine);
     wire_registry_prototype::<crate::js::Types, HTMLCanvasElement, HTMLElement>(engine);
     wire_registry_prototype::<crate::js::Types, HTMLIFrameElement, HTMLElement>(engine);
     wire_registry_prototype::<crate::js::Types, HTMLMediaElement, HTMLElement>(engine);
@@ -320,10 +369,13 @@ fn setup_realm(engine: &mut Engine, _document: Rc<RefCell<BaseDocument>>) -> Res
     wire_registry_constructor_prototype::<crate::js::Types, Node, EventTarget>(engine);
     wire_registry_constructor_prototype::<crate::js::Types, Document, Node>(engine);
     wire_registry_constructor_prototype::<crate::js::Types, Element, Node>(engine);
+    wire_registry_constructor_prototype::<crate::js::Types, Attr, Node>(engine);
     wire_registry_constructor_prototype::<crate::js::Types, HTMLElement, Element>(engine);
     wire_registry_constructor_prototype::<crate::js::Types, HTMLCanvasElement, HTMLElement>(engine);
     wire_registry_constructor_prototype::<crate::js::Types, OffscreenCanvas, EventTarget>(engine);
     wire_registry_constructor_prototype::<crate::js::Types, HTMLAnchorElement, HTMLElement>(engine);
+    wire_registry_constructor_prototype::<crate::js::Types, HTMLScriptElement, HTMLElement>(engine);
+    wire_registry_constructor_prototype::<crate::js::Types, HTMLLinkElement, HTMLElement>(engine);
     wire_registry_constructor_prototype::<crate::js::Types, HTMLIFrameElement, HTMLElement>(engine);
     wire_registry_constructor_prototype::<crate::js::Types, HTMLMediaElement, HTMLElement>(engine);
     wire_registry_constructor_prototype::<crate::js::Types, HTMLVideoElement, HTMLMediaElement>(
@@ -544,13 +596,14 @@ fn setup_worker_realm(
         AbortController, AbortSignal, DOMException, Document, Element, Event, EventTarget, Node,
     };
     use crate::encoding::{TextDecoder, TextEncoder};
+    use crate::fetch::{FetchApiRequest, Headers, Response};
     use crate::file_api::{Blob, File};
     #[cfg(not(boa_backend))]
     use crate::html::GlobalScope;
     use crate::html::{
         DedicatedWorkerGlobalScope, MessageChannel, MessageEvent, MessagePort, OffscreenCanvas,
-        OffscreenCanvasRenderingContext2D, Worker, WorkerGlobalScope, WorkerLocation,
-        WorkerNavigator,
+        OffscreenCanvasRenderingContext2D, PromiseRejectionEvent, Worker, WorkerGlobalScope,
+        WorkerLocation, WorkerNavigator,
     };
     use crate::streams::{
         ByteLengthQueuingStrategy, CountQueuingStrategy, ReadableByteStreamController,
@@ -636,6 +689,7 @@ fn setup_worker_realm(
     reg!(DOMException);
     reg!(Event);
     reg!(MessageEvent);
+    reg!(PromiseRejectionEvent);
     reg!(MessageChannel);
     reg!(MessagePort);
     reg!(AbortSignal);
@@ -650,7 +704,11 @@ fn setup_worker_realm(
     reg!(WorkerNavigator);
     reg!(URL);
     reg!(URLSearchParams);
-    install_url_search_params_iterator(engine)?;
+    install_pair_iterator::<URLSearchParams>(engine)?;
+    reg!(Headers);
+    install_pair_iterator::<Headers>(engine)?;
+    reg!(FetchApiRequest);
+    reg!(Response);
     reg!(Blob);
     reg!(File);
     reg!(TextEncoder);
@@ -675,6 +733,8 @@ fn setup_worker_realm(
 
     // Step 6: Wire prototype chains.
     wire_registry_prototype::<crate::js::Types, MessageEvent, Event>(engine);
+    wire_registry_prototype::<crate::js::Types, PromiseRejectionEvent, Event>(engine);
+    wire_registry_constructor_prototype::<crate::js::Types, PromiseRejectionEvent, Event>(engine);
     wire_registry_prototype::<crate::js::Types, MessagePort, EventTarget>(engine);
     wire_registry_prototype::<crate::js::Types, AbortSignal, EventTarget>(engine);
     wire_registry_prototype::<crate::js::Types, Node, EventTarget>(engine);
@@ -771,20 +831,22 @@ fn setup_worker_realm(
 }
 
 /// <https://webidl.spec.whatwg.org/#js-iterable>
-fn install_url_search_params_iterator(engine: &mut Engine) -> Result<(), String> {
-    use crate::url_standard::URLSearchParams;
+/// Install the @@iterator of a pair-iterable interface's prototype.
+/// <https://webidl.spec.whatwg.org/#define-the-iteration-methods>
+fn install_pair_iterator<T: crate::webidl::PairIterable>(
+    engine: &mut Engine,
+) -> Result<(), String> {
     use crate::webidl::bindings::get_registry_prototype;
     use js_engine::records::PropertyDescriptor;
     use js_engine::{EcmascriptHost, ExecutionContext as _};
 
     // The @@iterator property's value is the same function object as the
     // entries method's.
-    let Some(prototype) = get_registry_prototype::<crate::js::Types, URLSearchParams>(engine)
-    else {
-        return Err(String::from("URLSearchParams is not registered"));
+    let Some(prototype) = get_registry_prototype::<crate::js::Types, T>(engine) else {
+        return Err(format!("{} is not registered", T::NAME));
     };
     let entries = EcmascriptHost::get(engine, &prototype, "entries")
-        .map_err(|error| format!("failed to read URLSearchParams.prototype.entries: {error:?}"))?;
+        .map_err(|error| format!("failed to read {}.prototype.entries: {error:?}", T::NAME))?;
     let iterator_key = engine.property_key_from_well_known_symbol("iterator");
     engine
         .define_property_or_throw(
@@ -799,7 +861,7 @@ fn install_url_search_params_iterator(engine: &mut Engine) -> Result<(), String>
                 set: None,
             },
         )
-        .map_err(|error| format!("failed to install URLSearchParams @@iterator: {error:?}"))?;
+        .map_err(|error| format!("failed to install {} @@iterator: {error:?}", T::NAME))?;
     Ok(())
 }
 

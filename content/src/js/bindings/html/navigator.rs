@@ -1,6 +1,8 @@
 use crate::html::Navigator;
 use crate::js::Types;
 use crate::js::platform_objects::with_global_scope;
+#[cfg(feature = "webrtc")]
+use crate::mediacapture_streams::MediaDevices;
 use crate::webidl::bindings::{AttributeDef, InterfaceDefinition, OperationDef, WebIdlInterface};
 use crate::webidl::create_a_frozen_array_of_strings;
 use js_engine::{Completion, ExecutionContext, JsTypes};
@@ -52,6 +54,8 @@ impl WebIdlInterface<Types> for Navigator {
 
     fn define_members(def: &mut InterfaceDefinition<Types>) {
         readonly_attribute!(def, "appCodeName", get_app_code_name);
+        #[cfg(feature = "webrtc")]
+        readonly_attribute!(def, "mediaDevices", get_media_devices);
         readonly_attribute!(def, "appName", get_app_name);
         readonly_attribute!(def, "appVersion", get_app_version);
         readonly_attribute!(def, "platform", get_platform);
@@ -142,4 +146,20 @@ fn get_hardware_concurrency(
 ) -> Completion<JsValue, Types> {
     let concurrency = navigator(this, ec)?.hardware_concurrency();
     Ok(ec.value_from_number(concurrency as f64))
+}
+
+#[cfg(feature = "webrtc")]
+fn get_media_devices(
+    this: &JsValue,
+    _args: &[JsValue],
+    ec: &mut dyn ExecutionContext<Types>,
+) -> Completion<JsValue, Types> {
+    let navigator = navigator(this, ec)?;
+    let media_devices: MediaDevices = navigator.media_devices_value(ec)?;
+    media_devices
+        .event_target
+        .reflector
+        .clone()
+        .map(Types::value_from_object)
+        .ok_or_else(|| ec.new_type_error("MediaDevices without its object"))
 }

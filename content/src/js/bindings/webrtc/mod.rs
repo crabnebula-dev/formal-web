@@ -5,7 +5,9 @@ mod events;
 mod rtc_data_channel;
 mod rtc_ice_candidate;
 mod rtc_peer_connection;
+mod rtc_rtp_transceiver;
 mod rtc_session_description;
+mod rtc_stats_report;
 
 pub(super) use super::{
     boolean_member, dictionary, nullable_string_member, string_member, this_as,

@@ -1,12 +1,17 @@
 use crate::js::Types;
+use crate::js::bindings::mediacapture_streams::{stream_from_value, track_from_value};
 use crate::webidl::bindings::{InterfaceDefinition, WebIdlInterface};
 use crate::webidl::{any_value, convert_js_to_sequence};
 use crate::webrtc::rtc_ice_candidate::RTCIceCandidateInit;
 use crate::webrtc::rtc_peer_connection::{
     RTCConfiguration, RTCIceServer, RTCLocalSessionDescriptionInit,
 };
+use crate::webrtc::rtc_rtp_transceiver::direction_from_idl;
 use crate::webrtc::rtc_session_description::{RTCSdpType, RTCSessionDescriptionInit};
-use crate::webrtc::{RTCDataChannelInit, RTCPeerConnection};
+use crate::webrtc::{RTCDataChannelInit, RTCPeerConnection, RTCRtpTransceiverInit, TrackOrKind};
+use ipc_messages::webrtc::{TrackKind, TransceiverDirection};
+
+use super::rtc_rtp_transceiver::{reflectors_array, sender_from_value};
 use js_engine::{Completion, ExecutionContext, JsTypes};
 
 use super::{
@@ -51,6 +56,13 @@ impl WebIdlInterface<Types> for RTCPeerConnection {
         member!(def, operation "setRemoteDescription", 1, set_remote_description, promise true);
         member!(def, operation "addIceCandidate", 0, add_ice_candidate, promise true);
         member!(def, operation "createDataChannel", 1, create_data_channel, promise false);
+        member!(def, operation "addTrack", 1, add_track, promise false);
+        member!(def, operation "addTransceiver", 1, add_transceiver, promise false);
+        member!(def, operation "removeTrack", 1, remove_track, promise false);
+        member!(def, operation "getSenders", 0, get_senders, promise false);
+        member!(def, operation "getReceivers", 0, get_receivers, promise false);
+        member!(def, operation "getTransceivers", 0, get_transceivers, promise false);
+        member!(def, operation "getStats", 0, get_stats, promise true);
         member!(def, operation "close", 0, close, promise false);
         member!(def, attribute "localDescription", local_description);
         member!(def, attribute "currentLocalDescription", current_local_description);
@@ -71,6 +83,7 @@ impl WebIdlInterface<Types> for RTCPeerConnection {
         member!(def, attribute "onicegatheringstatechange", get_onicegatheringstatechange, set_onicegatheringstatechange);
         member!(def, attribute "onconnectionstatechange", get_onconnectionstatechange, set_onconnectionstatechange);
         member!(def, attribute "ondatachannel", get_ondatachannel, set_ondatachannel);
+        member!(def, attribute "ontrack", get_ontrack, set_ontrack);
     }
 }
 
@@ -432,4 +445,150 @@ event_handlers!(
     get_onicegatheringstatechange, set_onicegatheringstatechange, "icegatheringstatechange";
     get_onconnectionstatechange, set_onconnectionstatechange, "connectionstatechange";
     get_ondatachannel, set_ondatachannel, "datachannel";
+    get_ontrack, set_ontrack, "track";
 );
+
+fn add_track(
+    this: &JsValue,
+    args: &[JsValue],
+    ec: &mut dyn ExecutionContext<Types>,
+) -> Completion<JsValue, Types> {
+    let connection = connection(this, ec)?;
+    let undefined = ec.value_undefined();
+    let track = track_from_value(args.first().unwrap_or(&undefined), ec)
+        .ok_or_else(|| ec.new_type_error("addTrack needs a MediaStreamTrack"))?;
+    let mut streams = Vec::new();
+    for value in args.iter().skip(1) {
+        let stream = stream_from_value(value, ec)
+            .ok_or_else(|| ec.new_type_error("addTrack streams must be MediaStream objects"))?;
+        streams.push(stream);
+    }
+    let sender = connection.add_track(track, streams, ec)?;
+    sender
+        .reflector
+        .clone()
+        .map(Types::value_from_object)
+        .ok_or_else(|| ec.new_type_error("RTCRtpSender without its object"))
+}
+
+fn add_transceiver(
+    this: &JsValue,
+    args: &[JsValue],
+    ec: &mut dyn ExecutionContext<Types>,
+) -> Completion<JsValue, Types> {
+    let connection = connection(this, ec)?;
+    let undefined = ec.value_undefined();
+    let first = args.first().unwrap_or(&undefined);
+    let track_or_kind = match track_from_value(first, ec) {
+        Some(track) => TrackOrKind::Track(track),
+        None => {
+            let kind = ec.to_rust_string(first.clone())?;
+            match kind.as_str() {
+                "audio" => TrackOrKind::Kind(TrackKind::Audio),
+                "video" => TrackOrKind::Kind(TrackKind::Video),
+                _ => {
+                    return Err(ec.new_type_error(&format!(
+                        "'{kind}' is not a legal MediaStreamTrack kind"
+                    )));
+                }
+            }
+        }
+    };
+    let init = dictionary(args.get(1), ec)?;
+    let direction = match string_member(&init, "direction", ec)? {
+        Some(value) => direction_from_idl(&value).ok_or_else(|| {
+            ec.new_type_error(&format!(
+                "'{value}' is not a valid value for enumeration RTCRtpTransceiverDirection"
+            ))
+        })?,
+        None => TransceiverDirection::Sendrecv,
+    };
+    let streams = match init.get_member("streams", ec)? {
+        Some(value) => convert_js_to_sequence(
+            &value,
+            |item, ec| {
+                stream_from_value(&item, ec)
+                    .ok_or_else(|| ec.new_type_error("streams must hold MediaStream objects"))
+            },
+            ec,
+        )?,
+        None => Vec::new(),
+    };
+    let transceiver = connection.add_transceiver(
+        track_or_kind,
+        RTCRtpTransceiverInit { direction, streams },
+        ec,
+    )?;
+    transceiver
+        .reflector
+        .clone()
+        .map(Types::value_from_object)
+        .ok_or_else(|| ec.new_type_error("RTCRtpTransceiver without its object"))
+}
+
+fn remove_track(
+    this: &JsValue,
+    args: &[JsValue],
+    ec: &mut dyn ExecutionContext<Types>,
+) -> Completion<JsValue, Types> {
+    let connection = connection(this, ec)?;
+    let undefined = ec.value_undefined();
+    let sender = sender_from_value(args.first().unwrap_or(&undefined), ec)
+        .ok_or_else(|| ec.new_type_error("removeTrack needs an RTCRtpSender"))?;
+    connection.remove_track(sender, ec)?;
+    Ok(ec.value_undefined())
+}
+
+fn get_senders(
+    this: &JsValue,
+    _args: &[JsValue],
+    ec: &mut dyn ExecutionContext<Types>,
+) -> Completion<JsValue, Types> {
+    let senders = connection(this, ec)?.get_senders(ec);
+    reflectors_array(
+        senders
+            .iter()
+            .map(|sender| sender.reflector.clone())
+            .collect(),
+        ec,
+    )
+}
+
+fn get_receivers(
+    this: &JsValue,
+    _args: &[JsValue],
+    ec: &mut dyn ExecutionContext<Types>,
+) -> Completion<JsValue, Types> {
+    let receivers = connection(this, ec)?.get_receivers(ec);
+    reflectors_array(
+        receivers
+            .iter()
+            .map(|receiver| receiver.reflector.clone())
+            .collect(),
+        ec,
+    )
+}
+
+fn get_transceivers(
+    this: &JsValue,
+    _args: &[JsValue],
+    ec: &mut dyn ExecutionContext<Types>,
+) -> Completion<JsValue, Types> {
+    let transceivers = connection(this, ec)?.get_transceivers(ec);
+    reflectors_array(
+        transceivers
+            .iter()
+            .map(|transceiver| transceiver.reflector.clone())
+            .collect(),
+        ec,
+    )
+}
+
+fn get_stats(
+    this: &JsValue,
+    _args: &[JsValue],
+    ec: &mut dyn ExecutionContext<Types>,
+) -> Completion<JsValue, Types> {
+    let promise = connection(this, ec)?.get_stats(ec)?;
+    Ok(Types::value_from_object(promise))
+}
