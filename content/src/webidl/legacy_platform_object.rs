@@ -70,7 +70,13 @@ pub(crate) fn create_legacy_platform_object<T: LegacyPlatformObject>(
     ec: &mut dyn ExecutionContext<Types>,
 ) -> Completion<JsObject, Types> {
     let target = create_interface_instance::<Types, T>(data, ec)?;
-    // Step 13: "Otherwise, if interfaces contains an interface which supports indexed properties, named properties, or both, then set instance.[[SetPrototypeOf]] as defined in § 3.9.1 [[SetPrototypeOf]], set instance.[[GetOwnProperty]] as defined in § 3.9.2 [[GetOwnProperty]], set instance.[[DefineOwnProperty]] as defined in § 3.9.3 [[DefineOwnProperty]], set instance.[[Delete]] as defined in § 3.9.4 [[Delete]], set instance.[[PreventExtensions]] as defined in § 3.9.5 [[PreventExtensions]], and set instance.[[OwnPropertyKeys]] as defined in § 3.9.6 [[OwnPropertyKeys]]."
+    // Step 13: "Otherwise, if interfaces contains an interface which supports indexed properties, named properties, or both:"
+    // Step 13.1: "Set instance.[[GetOwnProperty]] as defined in § 3.9.1 [[GetOwnProperty]]."
+    // Step 13.2: "Set instance.[[Set]] as defined in § 3.9.2 [[Set]]."
+    // Step 13.3: "Set instance.[[DefineOwnProperty]] as defined in § 3.9.3 [[DefineOwnProperty]]."
+    // Step 13.4: "Set instance.[[Delete]] as defined in § 3.9.4 [[Delete]]."
+    // Step 13.5: "Set instance.[[PreventExtensions]] as defined in § 3.9.5 [[PreventExtensions]]."
+    // Step 13.6: "Set instance.[[OwnPropertyKeys]] as defined in § 3.9.6 [[OwnPropertyKeys]]."
     let handler = legacy_platform_object_handler::<T>(ec)?;
     let proxy = ec.create_platform_object_proxy(target, handler)?;
     <Types as PostCreateReflector<Types>>::set_reflector(&proxy, ec);
@@ -181,7 +187,7 @@ fn from_property_descriptor(
     descriptor: Option<PropertyDescriptor<Types>>,
     ec: &mut dyn ExecutionContext<Types>,
 ) -> Completion<JsValue, Types> {
-    // Step 1: "If Desc is undefined, return undefined."
+    // Step 1: "If propertyDesc is undefined, return undefined."
     let Some(descriptor) = descriptor else {
         return Ok(ec.value_undefined());
     };
@@ -190,20 +196,20 @@ fn from_property_descriptor(
     let object = ec.create_plain_object(None::<&JsObject>);
 
     // Step 3: "Assert: obj is an extensible ordinary object with no own properties."
-    // Step 4: "If Desc has a [[Value]] field, then Perform ! CreateDataPropertyOrThrow(obj, "value", Desc.[[Value]])."
+    // Step 4: "If propertyDesc has a [[Value]] field, then Perform ! CreateDataPropertyOrThrow(obj, "value", propertyDesc.[[Value]])."
     if let Some(value) = descriptor.value {
         let key = ec.property_key_from_str("value");
         ec.create_data_property(object.clone(), key, value)?;
     }
 
-    // Step 5: "If Desc has a [[Writable]] field, then Perform ! CreateDataPropertyOrThrow(obj, "writable", Desc.[[Writable]])."
+    // Step 5: "If propertyDesc has a [[Writable]] field, then Perform ! CreateDataPropertyOrThrow(obj, "writable", propertyDesc.[[Writable]])."
     if let Some(writable) = descriptor.writable {
         let key = ec.property_key_from_str("writable");
         let value = ec.value_from_bool(writable);
         ec.create_data_property(object.clone(), key, value)?;
     }
 
-    // Step 6: "If Desc has a [[Get]] field, then Perform ! CreateDataPropertyOrThrow(obj, "get", Desc.[[Get]])."
+    // Step 6: "If propertyDesc has a [[Getter]] field, then Perform ! CreateDataPropertyOrThrow(obj, "get", propertyDesc.[[Getter]])."
     if let Some(getter) = descriptor.get {
         let key = ec.property_key_from_str("get");
         let value =
@@ -211,7 +217,7 @@ fn from_property_descriptor(
         ec.create_data_property(object.clone(), key, value)?;
     }
 
-    // Step 7: "If Desc has a [[Set]] field, then Perform ! CreateDataPropertyOrThrow(obj, "set", Desc.[[Set]])."
+    // Step 7: "If propertyDesc has a [[Setter]] field, then Perform ! CreateDataPropertyOrThrow(obj, "set", propertyDesc.[[Setter]])."
     if let Some(setter) = descriptor.set {
         let key = ec.property_key_from_str("set");
         let value =
@@ -219,14 +225,14 @@ fn from_property_descriptor(
         ec.create_data_property(object.clone(), key, value)?;
     }
 
-    // Step 8: "If Desc has an [[Enumerable]] field, then Perform ! CreateDataPropertyOrThrow(obj, "enumerable", Desc.[[Enumerable]])."
+    // Step 8: "If propertyDesc has an [[Enumerable]] field, then Perform ! CreateDataPropertyOrThrow(obj, "enumerable", propertyDesc.[[Enumerable]])."
     if let Some(enumerable) = descriptor.enumerable {
         let key = ec.property_key_from_str("enumerable");
         let value = ec.value_from_bool(enumerable);
         ec.create_data_property(object.clone(), key, value)?;
     }
 
-    // Step 9: "If Desc has a [[Configurable]] field, then Perform ! CreateDataPropertyOrThrow(obj, "configurable", Desc.[[Configurable]])."
+    // Step 9: "If propertyDesc has a [[Configurable]] field, then Perform ! CreateDataPropertyOrThrow(obj, "configurable", propertyDesc.[[Configurable]])."
     if let Some(configurable) = descriptor.configurable {
         let key = ec.property_key_from_str("configurable");
         let value = ec.value_from_bool(configurable);
@@ -382,7 +388,7 @@ fn trap_define_property<T: LegacyPlatformObject>(
         .get(2)
         .and_then(<Types as JsTypes>::value_as_object)
         .ok_or_else(|| ec.new_type_error("property descriptor is not an object"))?;
-    let mut descriptor = ec.to_property_descriptor(descriptor_object)?;
+    let descriptor = ec.to_property_descriptor(descriptor_object)?;
 
     // Step 1: "If O supports indexed properties and P is an array index, then:"
     if T::SUPPORTS_INDEXED_PROPERTIES && is_array_index_key(&key, ec) {
@@ -399,10 +405,7 @@ fn trap_define_property<T: LegacyPlatformObject>(
         && let Some(name) = string_key(&key, ec)
     {
         // Step 2.1: "Let creating be true if P is not a supported property name, and false otherwise."
-        let creating = !object
-            .supported_property_names(ec)?
-            .iter()
-            .any(|supported| *supported == name);
+        let creating = !object.supported_property_names(ec)?.contains(&name);
 
         // Step 2.2: "If O implements an interface with the [LegacyOverrideBuiltIns] extended attribute or O does not have an own property named P, then:"
         let own_key = ec.property_key_from_str(&name);
@@ -417,10 +420,7 @@ fn trap_define_property<T: LegacyPlatformObject>(
         }
     }
 
-    // Step 3: "If O does not implement an interface with the [Global] extended attribute, then set Desc.[[Configurable]] to true."
-    descriptor.configurable = Some(true);
-
-    // Step 4: "Return ! OrdinaryDefineOwnProperty(O, P, Desc)."
+    // Step 3: "Return ! OrdinaryDefineOwnProperty(O, P, Desc)."
     let property_key = ec.to_property_key(key)?;
     let defined = ec
         .define_property_or_throw(target, property_key, descriptor)
@@ -496,7 +496,7 @@ fn trap_own_keys<T: LegacyPlatformObject>(
 ) -> Completion<JsValue, Types> {
     let (target, object) = trap_target::<T>(args, ec)?;
 
-    // Step 1: "Let keys be a new empty List."
+    // Step 1: "Let keys be a new empty list of JavaScript String and Symbol values."
     let keys = ec.create_empty_array();
 
     // Step 2: "If O supports indexed properties, then for each index of O’s supported property indices, in ascending numerical order, append ! ToString(index) to keys."
@@ -543,39 +543,39 @@ fn trap_get<T: LegacyPlatformObject>(
     let key = trap_key(args, ec);
     let receiver = args.get(2).cloned().unwrap_or_else(|| ec.value_undefined());
 
-    // Step 1: "Let desc be ? O.[[GetOwnProperty]](P)."
+    // Step 1: "Let propertyDesc be ? obj.[[GetOwnProperty]](propertyKey)."
     let mut descriptor =
         legacy_platform_object_get_own_property(&object, &target, &key, false, ec)?;
     let property_key = ec.to_property_key(key)?;
     let mut holder = target;
     loop {
-        // Step 2: "If desc is undefined, then"
+        // Step 2: "If propertyDesc is undefined, then"
         let Some(found) = descriptor else {
-            // Step 2.a: "Let parent be ? O.[[GetPrototypeOf]]()."
+            // Step 2.a: "Let parent be ? obj.[[GetPrototypeOf]]()."
             // Step 2.b: "If parent is null, return undefined."
             let Some(parent) = ec.get_prototype_of(holder)? else {
                 return Ok(ec.value_undefined());
             };
 
-            // Step 2.c: "Return ? parent.[[Get]](P, Receiver)."
+            // Step 2.c: "Return ? parent.[[Get]](propertyKey, receiver)."
             descriptor = ec.get_own_property(parent.clone(), property_key.clone())?;
             holder = parent;
             continue;
         };
 
-        // Step 3: "If IsDataDescriptor(desc) is true, return desc.[[Value]]."
+        // Step 3: "If IsDataDescriptor(propertyDesc) is true, return propertyDesc.[[Value]]."
         if is_data_descriptor(&found) {
             return Ok(found.value.unwrap_or_else(|| ec.value_undefined()));
         }
 
-        // Step 4: "Assert: IsAccessorDescriptor(desc) is true."
-        // Step 5: "Let getter be desc.[[Get]]."
+        // Step 4: "Assert: IsAccessorDescriptor(propertyDesc) is true."
+        // Step 5: "Let getter be propertyDesc.[[Getter]]."
         // Step 6: "If getter is undefined, return undefined."
         let Some(getter) = found.get else {
             return Ok(ec.value_undefined());
         };
 
-        // Step 7: "Return ? Call(getter, Receiver)."
+        // Step 7: "Return ? Call(getter, receiver)."
         let getter = <Types as JsTypes>::object_from_function(getter);
         return ec.call(&getter, &receiver, &[]);
     }
@@ -594,10 +594,9 @@ fn ordinary_set_with_own_descriptor(
     let own_descriptor = match own_descriptor {
         Some(own_descriptor) => own_descriptor,
         None => {
-            // Step 1.a: "Let parent be ? O.[[GetPrototypeOf]]()."
-            // Step 1.b: "If parent is not null, then"
+            // Step 1.a: "Let parent be ? obj.[[GetPrototypeOf]]()."
+            // Step 1.b: "If parent is not null, return ? parent.[[Set]](propertyKey, value, receiver)."
             if let Some(parent) = ec.get_prototype_of(holder)? {
-                // Step 1.b.i: "Return ? parent.[[Set]](P, V, Receiver)."
                 let parent_descriptor =
                     ec.get_own_property(parent.clone(), property_key.clone())?;
                 return ordinary_set_with_own_descriptor(
@@ -610,7 +609,7 @@ fn ordinary_set_with_own_descriptor(
                 );
             }
 
-            // Step 1.c: "Else, Set ownDesc to the PropertyDescriptor { [[Value]]: undefined, [[Writable]]: true, [[Enumerable]]: true, [[Configurable]]: true }."
+            // Step 1.c: "Set ownDesc to the PropertyDescriptor { [[Value]]: undefined, [[Writable]]: true, [[Enumerable]]: true, [[Configurable]]: true }."
             PropertyDescriptor {
                 value: Some(ec.value_undefined()),
                 writable: Some(true),
@@ -629,54 +628,55 @@ fn ordinary_set_with_own_descriptor(
             return Ok(false);
         }
 
-        // Step 2.b: "If Receiver is not an Object, return false."
+        // Step 2.b: "If receiver is not an Object, return false."
         let Some(receiver_object) = <Types as JsTypes>::value_as_object(receiver) else {
             return Ok(false);
         };
 
-        // Step 2.c: "Let existingDescriptor be ? Receiver.[[GetOwnProperty]](P)."
+        // Step 2.c: "Let existingDesc be ? receiver.[[GetOwnProperty]](propertyKey)."
         let existing = ec.get_own_property(receiver_object.clone(), property_key.clone())?;
 
-        // Step 2.d: "If existingDescriptor is not undefined, then"
-        if let Some(existing) = existing {
-            // Step 2.d.i: "If IsAccessorDescriptor(existingDescriptor) is true, return false."
-            if is_accessor_descriptor(&existing) {
-                return Ok(false);
-            }
+        // Step 2.d: "If existingDesc is undefined, then"
+        let Some(existing) = existing else {
+            // Step 2.d.i: "Assert: receiver does not currently have a property propertyKey."
+            // Step 2.d.ii: "Return ? CreateDataProperty(receiver, propertyKey, value)."
+            return ec.create_data_property(receiver_object, property_key, value);
+        };
 
-            // Step 2.d.ii: "If existingDescriptor.[[Writable]] is false, return false."
-            if existing.writable != Some(true) {
-                return Ok(false);
-            }
-
-            // Step 2.d.iii: "Let valueDesc be the PropertyDescriptor { [[Value]]: V }."
-            let value_descriptor = PropertyDescriptor {
-                value: Some(value),
-                writable: None,
-                get: None,
-                set: None,
-                enumerable: None,
-                configurable: None,
-            };
-
-            // Step 2.d.iv: "Return ? Receiver.[[DefineOwnProperty]](P, valueDesc)."
-            return Ok(ec
-                .define_property_or_throw(receiver_object, property_key, value_descriptor)
-                .is_ok());
+        // Step 2.e: "If IsAccessorDescriptor(existingDesc) is true, return false."
+        if is_accessor_descriptor(&existing) {
+            return Ok(false);
         }
 
-        // Step 2.e: "Else, Return ? CreateDataProperty(Receiver, P, V)."
-        return ec.create_data_property(receiver_object, property_key, value);
+        // Step 2.f: "If existingDesc.[[Writable]] is false, return false."
+        if existing.writable != Some(true) {
+            return Ok(false);
+        }
+
+        // Step 2.g: "Let valueDesc be the PropertyDescriptor { [[Value]]: value }."
+        let value_descriptor = PropertyDescriptor {
+            value: Some(value),
+            writable: None,
+            get: None,
+            set: None,
+            enumerable: None,
+            configurable: None,
+        };
+
+        // Step 2.h: "Return ? receiver.[[DefineOwnProperty]](propertyKey, valueDesc)."
+        return Ok(ec
+            .define_property_or_throw(receiver_object, property_key, value_descriptor)
+            .is_ok());
     }
 
     // Step 3: "Assert: IsAccessorDescriptor(ownDesc) is true."
-    // Step 4: "Let setter be ownDesc.[[Set]]."
+    // Step 4: "Let setter be ownDesc.[[Setter]]."
     // Step 5: "If setter is undefined, return false."
     let Some(setter) = own_descriptor.set else {
         return Ok(false);
     };
 
-    // Step 6: "Perform ? Call(setter, Receiver, « V »)."
+    // Step 6: "Perform ? Call(setter, receiver, « value »)."
     let setter = <Types as JsTypes>::object_from_function(setter);
     ec.call(&setter, receiver, &[value])?;
 
@@ -722,7 +722,7 @@ fn trap_has<T: LegacyPlatformObject>(
     let (target, object) = trap_target::<T>(args, ec)?;
     let key = trap_key(args, ec);
 
-    // Step 1: "Let hasOwn be ? O.[[GetOwnProperty]](P)."
+    // Step 1: "Let hasOwn be ? obj.[[GetOwnProperty]](propertyKey)."
     let has_own = legacy_platform_object_get_own_property(&object, &target, &key, false, ec)?;
 
     // Step 2: "If hasOwn is not undefined, return true."
@@ -730,10 +730,10 @@ fn trap_has<T: LegacyPlatformObject>(
         return Ok(ec.value_from_bool(true));
     }
 
-    // Step 3: "Let parent be ? O.[[GetPrototypeOf]]()."
+    // Step 3: "Let parent be ? obj.[[GetPrototypeOf]]()."
     // Step 4: "If parent is not null, then"
     if let Some(parent) = ec.get_prototype_of(target)? {
-        // Step 4.a: "Return ? parent.[[HasProperty]](P)."
+        // Step 4.a: "Return ? parent.[[HasProperty]](propertyKey)."
         let property_key = ec.to_property_key(key)?;
         let has = ec.has_property(parent, property_key)?;
         return Ok(ec.value_from_bool(has));

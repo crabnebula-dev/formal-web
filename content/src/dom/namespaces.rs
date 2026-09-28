@@ -57,7 +57,7 @@ pub(crate) fn is_a_valid_element_local_name(name: &str) -> bool {
         return false;
     }
 
-    // Step 4: "If name’s subsequent code points, if any, are not ASCII alphanumeric, U+003A (:), U+005F (_), U+002D (-), U+002E (.), or in the range U+0080 to U+10FFFF, inclusive, then return false."
+    // Step 4: "If name’s subsequent code points, if any, are not ASCII alphas, ASCII digits, U+002D (-), U+002E (.), U+003A (:), U+005F (_), or in the range U+0080 to U+10FFFF, inclusive, then return false."
     if code_points.any(|code_point| {
         !(code_point.is_ascii_alphanumeric()
             || matches!(code_point, ':' | '_' | '-' | '.')
@@ -85,18 +85,21 @@ pub(crate) fn validate_and_extract(
     // Step 3: "Let localName be qualifiedName."
     let mut local_name = qualified_name;
 
-    // Step 4: "If qualifiedName contains a U+003A (:), then strictly split qualifiedName on U+003A (:): set prefix to the part before it and localName to the part after it."
+    // Step 4: "If qualifiedName contains a U+003A (:):"
     if let Some((before, after)) = qualified_name.split_once(':') {
+        // Step 4.1: "Set prefix to the part of qualifiedName before the first U+003A (:)."
         prefix = Some(before);
+
+        // Step 4.2: "Set localName to the part of qualifiedName after the first U+003A (:)."
         local_name = after;
+
+        // Step 4.3: "If prefix is not a valid namespace prefix, then throw an "InvalidCharacterError" DOMException."
+        if !is_a_valid_namespace_prefix(before) {
+            return Err(DOMException::invalid_character_error());
+        }
     }
 
-    // Step 5: "If prefix is non-null and is not a valid namespace prefix, then throw an "InvalidCharacterError" DOMException."
-    if let Some(prefix) = prefix
-        && !is_a_valid_namespace_prefix(prefix)
-    {
-        return Err(DOMException::invalid_character_error());
-    }
+    // Step 5: "Assert: prefix is either null or a valid namespace prefix."
 
     // Step 6: "If context is "attribute" and localName is not a valid attribute local name, then throw an "InvalidCharacterError" DOMException."
     if context == ValidateAndExtractContext::Attribute

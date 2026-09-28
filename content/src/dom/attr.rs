@@ -66,20 +66,25 @@ impl EventTargetAccess for Attr {
 }
 
 impl Attr {
-    /// <https://dom.spec.whatwg.org/#concept-attribute>
-    // Note: the node document is the realm's document, which every node here
-    // belongs to.
-    pub(crate) fn new(
+    /// <https://dom.spec.whatwg.org/#create-an-attribute>
+    // Note: the document is the realm's document, which every node here
+    // belongs to, and the attribute's element is given at creation when the
+    // attribute is already in an element's attribute list.
+    pub(crate) fn create_an_attribute(
         attribute: Attribute,
         element: Option<Element>,
         ec: &mut dyn ExecutionContext<Types>,
     ) -> Completion<Attr, Types> {
+        // Step 1: "Let attribute be the result of creating a node that implements Attr, given document."
+        // Step 2: "Set attribute’s namespace to namespace, namespace prefix to prefix, local name to localName, and value to value."
         let attr = Attr {
             event_target: EventTarget::new(ec),
             attribute: Rc::new(RefCell::new(attribute)),
             element: gc_cell_new(element, ec),
         };
         let object = create_interface_instance::<Types, Attr>(attr, ec)?;
+
+        // Step 3: "Return attribute."
         ec.with_object_any(&object)
             .and_then(|data| data.downcast_ref::<Attr>().cloned())
             .ok_or_else(|| ec.new_type_error("Attr instance is not an Attr"))
@@ -136,13 +141,18 @@ impl Attr {
         value: &str,
         ec: &mut dyn ExecutionContext<Types>,
     ) {
-        // Step 1: "If attribute’s element is null, then set attribute’s value to value."
+        // Step 1: "If attribute’s element is null, then set attribute’s value to value and return."
+        // Step 2: "Let element be attribute’s element."
         let Some(element) = self.element(ec) else {
             self.attribute.borrow_mut().value = value.to_owned();
             return;
         };
 
-        // Step 2: "Otherwise, change attribute to value."
+        // Step 3: "Let verifiedValue be the result of calling get trusted type compliant attribute value with attribute’s local name, attribute’s namespace, element, and value."
+        // Step 4: "If attribute’s element is null, then set attribute’s value to verifiedValue and return."
+        // TODO: Trusted Types is not implemented; verifiedValue is value.
+
+        // Step 5: "Change attribute to verifiedValue."
         let attribute = self.attribute(ec);
         element.change_an_attribute(&attribute, value);
     }
@@ -223,22 +233,22 @@ impl Attr {
         self.set_an_existing_attribute_value(value, ec);
     }
 
-    /// <https://dom.spec.whatwg.org/#dom-node-textcontent>
+    /// <https://dom.spec.whatwg.org/#get-text-content>
     pub(crate) fn text_content(&self, ec: &mut dyn ExecutionContext<Types>) -> String {
-        // "Attr: this’s value."
+        // "Attr: node’s value."
         self.attribute(ec).value
     }
 
-    /// <https://dom.spec.whatwg.org/#dom-node-textcontent>
+    /// <https://dom.spec.whatwg.org/#set-text-content>
     pub(crate) fn set_text_content(
         &self,
         value: Option<&str>,
         ec: &mut dyn ExecutionContext<Types>,
     ) {
-        // Step 1: "If the given value is null, act as if it was the empty string instead."
+        // "The textContent setter steps are to, if the given value is null, act as if it was the empty string instead, and then run set text content with this and the given value."
         let value = value.unwrap_or("");
 
-        // Step 2: "Attr: Set an existing attribute value with this and the given value."
+        // "Attr: Set an existing attribute value with node and value."
         self.set_an_existing_attribute_value(value, ec);
     }
 }

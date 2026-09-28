@@ -527,7 +527,11 @@ impl Element {
         for record in &records {
             match cached.iter().find(|attr| attr.is_attribute(record)) {
                 Some(attr) => list.push(attr.clone()),
-                None => list.push(Attr::new(record.clone(), Some(self.clone()), ec)?),
+                None => list.push(Attr::create_an_attribute(
+                    record.clone(),
+                    Some(self.clone()),
+                    ec,
+                )?),
             }
         }
         for attr in cached {
@@ -651,14 +655,17 @@ impl Element {
         attr: &Attr,
         ec: &mut dyn ExecutionContext<Types>,
     ) -> Completion<Result<Option<Attr>, DOMException>, Types> {
-        // Step 1: "If attr’s element is neither null nor element, throw an "InUseAttributeError" DOMException."
+        // Step 1: "Let verifiedValue be the result of calling get trusted type compliant attribute value with attr’s local name, attr’s namespace, element, and attr’s value."
+        // TODO: Trusted Types is not implemented; verifiedValue is attr's value.
+
+        // Step 2: "If attr’s element is neither null nor element, throw an "InUseAttributeError" DOMException."
         if let Some(owner) = attr.element(ec)
             && !owner.is_same_element(self)
         {
             return Ok(Err(DOMException::in_use_attribute_error()));
         }
 
-        // Step 2: "Let oldAttr be the result of getting an attribute given attr’s namespace, attr’s local name, and element."
+        // Step 3: "Let oldAttr be the result of getting an attribute given attr’s namespace, attr’s local name, and element."
         let attribute = attr.attribute(ec);
         let old_attribute = self.get_an_attribute_by_namespace_and_local_name(
             attribute.namespace.as_deref(),
@@ -669,23 +676,24 @@ impl Element {
             None => None,
         };
 
-        // Step 3: "If oldAttr is attr, return attr."
+        // Step 4: "If oldAttr is attr, return attr."
         if let Some(old_attr) = &old_attr
             && old_attr.ptr_eq(attr)
         {
             return Ok(Ok(Some(attr.clone())));
         }
 
-        // Step 4: "If oldAttr is non-null, then replace oldAttr with attr."
+        // Step 5: "Set attr’s value to verifiedValue."
+        // Step 6: "If oldAttr is non-null, then replace oldAttr with attr."
         if let Some(old_attr) = &old_attr {
             self.replace_an_attribute(old_attr, attr, ec)?;
         } else {
-            // Step 5: "Otherwise, append attr to element."
+            // Step 7: "Otherwise, append attr to element."
             self.append_an_attribute(&attribute);
             self.adopt_attribute_node(attr, ec)?;
         }
 
-        // Step 6: "Return oldAttr."
+        // Step 8: "Return oldAttr."
         Ok(Ok(old_attr))
     }
 
@@ -697,14 +705,13 @@ impl Element {
         prefix: Option<&str>,
         namespace: Option<&str>,
     ) {
-        // Step 1: "If prefix is not given, set it to null."
-        // Step 2: "If namespace is not given, set it to null."
         let namespace = namespace.filter(|namespace| !namespace.is_empty());
-
-        // Step 3: "Let attribute be the result of getting an attribute given namespace, localName, and element."
+        // Step 1: "Let attribute be the result of getting an attribute given namespace, localName, and element."
         let attribute = self.get_an_attribute_by_namespace_and_local_name(namespace, local_name);
 
-        // Step 4: "If attribute is null, create an attribute whose namespace is namespace, namespace prefix is prefix, local name is localName, value is value, and node document is element’s node document, then append this attribute to element, and then return."
+        // Step 2: "If attribute is null, then append the result of creating an attribute given element’s node document, localName, namespace, prefix, and value to element, and then return."
+        // Note: the attribute is stored as a record; its Attr node is created
+        // by `attribute_list` when script reaches for it.
         let Some(attribute) = attribute else {
             self.append_an_attribute(&Attribute {
                 namespace: namespace.map(str::to_owned),
@@ -715,7 +722,7 @@ impl Element {
             return;
         };
 
-        // Step 5: "Change attribute to value."
+        // Step 3: "Change attribute to value."
         self.change_an_attribute(&attribute, value);
     }
 
@@ -725,11 +732,12 @@ impl Element {
         self.write_attribute_storage(attribute, &attribute.value);
 
         // Step 2: "Set attribute’s element to element."
+        // Step 3: "Set attribute’s node document to element’s node document."
         // Note: the attribute's Attr platform object gets its element when
         // `attribute_list` materializes it, or from `adopt_attribute_node`
-        // when the Attr exists already.
+        // when the Attr exists already; the node document is the realm's.
 
-        // Step 3: "Handle attribute changes for attribute with element, null, and attribute’s value."
+        // Step 4: "Handle attribute changes for attribute with element, null, and attribute’s value."
         // TODO: Not yet implemented.
     }
 
@@ -744,21 +752,24 @@ impl Element {
         let new_attribute = new_attr.attribute(ec);
         let position = self.attribute_storage_position(&old_attribute);
 
-        // Step 3: "Set oldAttr’s element to null."
-        // Note: runs before step 1 so oldAttr keeps the value it is replaced with.
+        // Step 1: "Let element be oldAttribute’s element."
+        // Step 5: "Set oldAttribute’s element to null."
+        // Note: runs before step 2 so oldAttribute keeps the value it is
+        // replaced with.
         self.detach_cached_attribute_node(&old_attribute, ec);
 
-        // Step 1: "Replace oldAttr by newAttr in oldAttr’s element’s attribute list."
+        // Step 2: "Replace oldAttribute by newAttribute in element’s attribute list."
         self.clear_attribute_storage(&old_attribute);
         self.write_attribute_storage(&new_attribute, &new_attribute.value);
         if let Some(position) = position {
             self.move_attribute_storage(&new_attribute, position);
         }
 
-        // Step 2: "Set newAttr’s element to oldAttr’s element."
+        // Step 3: "Set newAttribute’s element to element."
+        // Step 4: "Set newAttribute’s node document to element’s node document."
         self.adopt_attribute_node(new_attr, ec)?;
 
-        // Step 4: "Handle attribute changes for oldAttr with newAttr’s element, oldAttr’s value, and newAttr’s value."
+        // Step 6: "Handle attribute changes for oldAttribute with element, oldAttribute’s value, and newAttribute’s value."
         // TODO: Not yet implemented.
         Ok(())
     }
@@ -888,25 +899,31 @@ impl Element {
         // Step 2: "If this is in the HTML namespace and its node document is an HTML document, then set qualifiedName to qualifiedName in ASCII lowercase."
         let qualified_name = self.normalized_attribute_qualified_name(qualified_name);
 
-        // Step 3: "Let attribute be the first attribute in this’s attribute list whose qualified name is qualifiedName, and null otherwise."
+        // Step 3: "Let verifiedValue be the result of calling get trusted type compliant attribute value with qualifiedName, null, this, and value."
+        // TODO: Trusted Types is not implemented; verifiedValue is value.
+
+        // Step 4: "Let attribute be the first attribute in this’s attribute list whose qualified name is qualifiedName, and null otherwise."
         let attribute = self
             .attribute_records()
             .into_iter()
             .find(|attribute| attribute.qualified_name() == qualified_name);
 
-        // Step 4: "If attribute is null, create an attribute whose local name is qualifiedName, value is value, and node document is this’s node document, then append this attribute to this, and then return."
-        let Some(attribute) = attribute else {
-            self.append_an_attribute(&Attribute {
-                namespace: None,
-                namespace_prefix: None,
-                local_name: qualified_name,
-                value: value.to_owned(),
-            });
+        // Step 5: "If attribute is non-null, then change attribute to verifiedValue and return."
+        if let Some(attribute) = attribute {
+            self.change_an_attribute(&attribute, value);
             return Ok(());
+        }
+
+        // Step 6: "Set attribute to the result of creating an attribute given this’s node document, qualifiedName, null, null, and verifiedValue."
+        let attribute = Attribute {
+            namespace: None,
+            namespace_prefix: None,
+            local_name: qualified_name,
+            value: value.to_owned(),
         };
 
-        // Step 5: "Change attribute to value."
-        self.change_an_attribute(&attribute, value);
+        // Step 7: "Append attribute to this."
+        self.append_an_attribute(&attribute);
         Ok(())
     }
 
@@ -924,7 +941,10 @@ impl Element {
             ValidateAndExtractContext::Attribute,
         )?;
 
-        // Step 2: "Set an attribute value for this using localName, value, and also prefix and namespace."
+        // Step 2: "Let verifiedValue be the result of calling get trusted type compliant attribute value with localName, namespace, this, and value."
+        // TODO: Trusted Types is not implemented; verifiedValue is value.
+
+        // Step 3: "Set an attribute value for this using localName, verifiedValue, prefix, and namespace."
         self.set_an_attribute_value(&local_name, value, prefix.as_deref(), namespace.as_deref());
         Ok(())
     }
@@ -981,9 +1001,9 @@ impl Element {
             .into_iter()
             .find(|attribute| attribute.qualified_name() == qualified_name);
 
-        // Step 4: "If attribute is null, then:"
+        // Step 4: "If attribute is null:"
         let Some(attribute) = attribute else {
-            // Step 4.1: "If force is not given or is true, create an attribute whose local name is qualifiedName, value is the empty string, and node document is this’s node document, then append this attribute to this, and then return true."
+            // Step 4.1: "If force is not given or is true, then append the result of creating an attribute given this’s node document and qualifiedName to this, and then return true."
             if force != Some(false) {
                 self.append_an_attribute(&Attribute {
                     namespace: None,
@@ -998,7 +1018,7 @@ impl Element {
             return Ok(Ok(false));
         };
 
-        // Step 5: "Otherwise, if force is not given or is false, remove an attribute given qualifiedName and this, and then return false."
+        // Step 5: "If force is not given or is false, remove an attribute given qualifiedName and this, and then return false."
         if force != Some(true) {
             self.detach_cached_attribute_node(&attribute, ec);
             self.remove_an_attribute_by_name(&qualified_name);

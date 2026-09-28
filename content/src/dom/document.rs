@@ -179,8 +179,8 @@ impl Document {
         // Note: every document here is an HTML document.
         let local_name = local_name.to_ascii_lowercase();
 
-        // Step 3: "Return a new attribute whose local name is localName and node document is this."
-        let attr = Attr::new(
+        // Step 3: "Return the result of creating an attribute given this and localName."
+        let attr = Attr::create_an_attribute(
             Attribute {
                 namespace: None,
                 namespace_prefix: None,
@@ -210,8 +210,8 @@ impl Document {
             Err(error) => return Ok(Err(error)),
         };
 
-        // Step 2: "Return a new attribute whose namespace is namespace, namespace prefix is prefix, local name is localName, and node document is this."
-        let attr = Attr::new(
+        // Step 2: "Return the result of creating an attribute given this, localName, namespace, and prefix."
+        let attr = Attr::create_an_attribute(
             Attribute {
                 namespace,
                 namespace_prefix: prefix,

@@ -45,7 +45,7 @@ impl NamedNodeMap {
         &self,
         ec: &mut dyn ExecutionContext<Types>,
     ) -> Completion<u32, Types> {
-        // "A NamedNodeMap object’s supported property indices are the numbers in the range zero to its attribute list’s size minus one, unless the attribute list is empty, in which case there are no supported property indices."
+        // "A NamedNodeMap object’s supported property indices are the numbers in the range zero to its attribute list’s size − 1, unless the attribute list is empty, in which case there are no supported property indices."
         Ok(self.attribute_list(ec)?.len() as u32)
     }
 
